@@ -1,0 +1,87 @@
+[package]
+name = "train-station"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "A high-performance, zero dependency Rust machine learning library"
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+build = "build.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[build-dependencies]
+
+[features]
+default = []
+cuda = []   # Enable CUDA support via FFI (requires CUDA toolkit and bindings)
+
+[lib]
+name = "train_station"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic_linear_layer"
+path = "examples/neural_networks/basic_linear_layer.rs"
+
+[[example]]
+name = "feedforward_network"
+path = "examples/neural_networks/feedforward_network.rs"
+
+[[example]]
+name = "basic_structs"
+path = "examples/serialization/basic_structs.rs"
+
+[[example]]
+name = "nested_structures"
+path = "examples/serialization/nested_structures.rs"
+
+[[example]]
+name = "json_vs_binary"
+path = "examples/serialization/json_vs_binary.rs"
+
+[[example]]
+name = "error_handling"
+path = "examples/serialization/error_handling.rs"
+
+[[example]]
+name = "advanced_patterns"
+path = "examples/iterators/advanced_patterns.rs"
+
+[[example]]
+name = "element_iteration"
+path = "examples/iterators/element_iteration.rs"
+
+[[example]]
+name = "performance_optimization"
+path = "examples/iterators/performance_optimization.rs"
+
+[[example]]
+name = "optimizer_basics"
+path = "examples/getting_started/optimizer_basics.rs"
+
+[[example]]
+name = "serialization_basics"
+path = "examples/getting_started/serialization_basics.rs"
+
+[[example]]
+name = "tensor_basics"
+path = "examples/getting_started/tensor_basics.rs"
+
+[[example]]
+name = "tensor_operators"
+path = "examples/getting_started/tensor_operators.rs"
+
+[[example]]
+name = "adam_configurations"
+path = "examples/optimizers/adam_configurations.rs"
+
+[[example]]
+name = "learning_rate_scheduling"
+path = "examples/optimizers/learning_rate_scheduling.rs"
+

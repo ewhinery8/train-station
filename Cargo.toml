@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "train-station",
+    "libtorch-validation",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Evan Whinery <evan.whinery@gmail.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ewhinery8/train-station"
+keywords = ["machine-learning", "autodiff", "neural-networks", "tensors", "zero-dependency"]
+categories = ["science", "algorithms", "data-structures", "mathematics", "development-tools"]
+readme = "README.md"
+
+[workspace.dependencies]

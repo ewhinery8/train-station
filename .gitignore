@@ -1,0 +1,35 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE files
+.vscode/
+.cursor/
+.idea/
+*.swp
+*.swo
+*~
+
+# Visualization files
+*.html
+*.csv
+*.json
+*.bin
+
+# Environment files
+.env
+.env.local
+
+# Backup files
+*.bak
+*.backup
+
+# Log files
+*.log
+
+# LibTorch library files
+libtorch/ 
+
+# Heavy docs
+docs/
