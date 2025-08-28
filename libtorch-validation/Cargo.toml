@@ -1,0 +1,69 @@
+[package]
+name = "libtorch-validation"
+version.workspace = true
+edition.workspace = true
+publish = false
+authors.workspace = true
+description = "LibTorch integration and validation for train-station"
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
+build = "build.rs"
+
+[dependencies]
+train-station = { path = "../train-station" }
+
+[build-dependencies]
+# Build dependencies for FFI compilation
+
+[lib]
+name = "libtorch_validation"
+path = "src/lib.rs"
+
+[[example]]
+name = "add_performance"
+path = "examples/benches/add_performance.rs"
+
+[[example]]
+name = "cat_performance"
+path = "examples/benches/cat_performance.rs"
+
+[[example]]
+name = "div_performance"
+path = "examples/benches/div_performance.rs"
+
+[[example]]
+name = "flatten_performance"
+path = "examples/benches/flatten_performance.rs"
+
+[[example]]
+name = "matmul_performance"
+path = "examples/benches/matmul_performance.rs"
+
+[[example]]
+name = "mul_performance"
+path = "examples/benches/mul_performance.rs"
+
+
+[[example]]
+name = "permute_performance"
+path = "examples/benches/permute_performance.rs"
+
+
+[[example]]
+name = "stack_performance"
+path = "examples/benches/stack_performance.rs"
+
+[[example]]
+name = "sub_performance"
+path = "examples/benches/sub_performance.rs"
+
+[[example]]
+name = "transpose_performance"
+path = "examples/benches/transpose_performance.rs"
+
+[[example]]
+name = "view_performance"
+path = "examples/benches/view_performance.rs"
