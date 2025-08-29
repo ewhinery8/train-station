@@ -6,11 +6,14 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Evan Whinery <evan.whinery@gmail.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ewhinery8/train-station"
+homepage = "https://github.com/ewhinery8/train-station"
+documentation = "https://docs.rs/train-station"
+rust-version = "1.70"
 keywords = ["machine-learning", "autodiff", "neural-networks", "tensors", "zero-dependency"]
 categories = ["science", "algorithms", "data-structures", "mathematics", "development-tools"]
 readme = "README.md"

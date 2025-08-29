@@ -4,11 +4,11 @@ version = 3
 
 [[package]]
 name = "libtorch-validation"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "train-station",
 ]
 
 [[package]]
 name = "train-station"
-version = "0.1.1"
+version = "0.1.2"
