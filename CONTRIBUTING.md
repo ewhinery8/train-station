@@ -25,7 +25,105 @@ This project follows the [Rust Code of Conduct](https://www.rust-lang.org/polici
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/yourusername/train-station.git`
 3. Add upstream remote: `git remote add upstream https://github.com/originalowner/train-station.git`
-4. Create a feature branch: `git checkout -b feature/your-feature-name`
+4. Create a feature branch following our naming convention (see below)
+
+## Branch Naming Convention
+
+We follow a structured branch naming convention to improve code organization and review processes.
+
+### Format
+```
+<type>/<short-description>
+```
+
+### Branch Types
+- **`feat/`** - New features (e.g., `feat/matrix-multiplication`)
+- **`fix/`** - Bug fixes (e.g., `fix/memory-leak-tensors`)
+- **`perf/`** - Performance improvements (e.g., `perf/simd-optimization`)
+- **`docs/`** - Documentation updates (e.g., `docs/api-reference`)
+- **`refactor/`** - Code refactoring (e.g., `refactor/tensor-core`)
+- **`test/`** - Adding/improving tests (e.g., `test/cuda-validation`)
+- **`chore/`** - Maintenance tasks (e.g., `chore/update-dependencies`)
+
+### Guidelines
+- Use lowercase with hyphens
+- Be descriptive but concise
+- Match branch type with commit type (e.g., `feat/` branches use `feat:` commits)
+
+## Commit Message Convention
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/) to enable automated changelog generation and semantic versioning.
+
+### Format
+```
+<type>: <description>
+
+[optional body]
+
+[optional footer]
+```
+
+### Types
+- `feat`: New features or enhancements
+- `fix`: Bug fixes
+- `docs`: Documentation changes
+- `perf`: Performance improvements (include metrics when possible)
+- `refactor`: Code refactoring without functional changes
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks, dependency updates
+
+### Examples
+```
+feat: add matrix multiplication with SIMD optimization
+fix: resolve memory leak in tensor allocation
+perf: optimize broadcasting operations by 40%
+docs: update API documentation for autograd system
+refactor: simplify gradient computation logic
+test: add comprehensive validation for CUDA operations
+chore: bump version to 0.1.4
+```
+
+### Performance Commits
+For performance improvements, include measurable impact:
+```
+perf: optimize SIMD operations for 50% speed improvement
+perf: reduce memory allocation overhead by 30%
+perf: implement cache-friendly matrix multiplication
+```
+
+### Commit Message Setup
+Configure Git to use our commit message template:
+```bash
+git config commit.template .gitmessage
+```
+
+## Development Workflow
+
+### 1. Create a Feature Branch
+```bash
+# Ensure you're on main and up to date
+git checkout main
+git pull upstream main
+
+# Create feature branch following naming convention
+git checkout -b feat/tensor-broadcasting
+```
+
+### 2. Make Changes and Commit
+```bash
+# Make your changes
+git add .
+git commit -m "feat: implement tensor broadcasting for arbitrary shapes"
+
+# Push to your fork
+git push origin feat/tensor-broadcasting
+```
+
+### 3. Create Pull Request
+- Go to GitHub and create a PR from your branch to `main`
+- Fill out the PR template with clear description
+- Ensure all CI checks pass
+- Request review from maintainers
 
 ## Development Setup
 
