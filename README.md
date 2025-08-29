@@ -33,32 +33,32 @@ Base performance seems solid - with signifigant speedups compared to LibTorch (C
 ### Performance Benchmarks
 
 #### Addition Operation (CPU)
-![Addition Speedup Performance](benches/ts_vs_libtorch_speedup_add.png)
-![Addition Time Performance](benches/ts_vs_libtorch_timing_add.png)
+![Addition Speedup Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_speedup_add.png)
+![Addition Time Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_timing_add.png)
 
 Train Station's addition operation showcases performance across tensor sizes with particularly impressive results on small to medium tensors where our zero-overhead approach shines. We are 2-3X faster on average across the benchmarks run. 
 
 #### Subtraction Operation (CPU)
-![Subtraction Speedup Performance](benches/ts_vs_libtorch_speedup_sub.png)
-![Subtraction Time Performance](benches/ts_vs_libtorch_timing_sub.png)
+![Subtraction Speedup Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_speedup_sub.png)
+![Subtraction Time Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_timing_sub.png)
 
 Train Station's subtraction operation showcases performance across tensor sizes with particularly impressive results on small to medium tensors where our zero-overhead approach shines. We are 3-4X faster on average across the benchmarks run. 
 
 #### Multiplication Operation (CPU)
-![Multiplication Speedup Performance](benches/ts_vs_libtorch_speedup_mul.png)
-![Multiplication Time Performance](benches/ts_vs_libtorch_timing_mul.png)
+![Multiplication Speedup Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_speedup_mul.png)
+![Multiplication Time Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_timing_mul.png)
 
 Train Station's multiplication operation showcases performance across tensor sizes with particularly impressive results on small to medium tensors where our zero-overhead approach shines. We are 2-3X faster on average across the benchmarks run. 
 
 #### Division Operation (CPU)
-![Division Speedup Performance](benches/ts_vs_libtorch_speedup_div.png)
-![Division Time Performance](benches/ts_vs_libtorch_timing_div.png)
+![Division Speedup Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_speedup_div.png)
+![Division Time Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_timing_div.png)
 
 Train Station's division operation showcases performance across tensor sizes with particularly impressive results on small to medium tensors where our zero-overhead approach shines. We are 3-4X faster on average across the benchmarks run. 
 
 #### Matrix Multiplication (CPU)
-![Matrix Multiplication Speedup Performance](benches/ts_vs_libtorch_speedup_matmul.png)
-![Matrix Multiplication Time Performance](benches/ts_vs_libtorch_timing_matmul.png)
+![Matrix Multiplication Speedup Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_speedup_matmul.png)
+![Matrix Multiplication Time Performance](https://raw.githubusercontent.com/ewhinery8/train-station/master/benches/ts_vs_libtorch_timing_matmul.png)
 
 Train Station's matmul operation shows increased performance at the very bottom end, but end up being slower on average than LibTorch (hard to compete with LibTorch's handcrafted matmul kernels and decades of MKL and BLAS library refinement). We are exploring ways to get this benchmark up without adding async operations. 
 
