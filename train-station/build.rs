@@ -7,6 +7,11 @@ use std::process::Command;
 /// IMPORTANT: The core library has ZERO external dependencies.
 /// CUDA FFI is compiled ONLY when the cuda feature is enabled.
 fn main() {
+    // Skip build script entirely on docs.rs
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
     // Only build CUDA stubs when cuda feature is enabled
     let has_cuda_feature = std::env::var("CARGO_FEATURE_CUDA").is_ok();
 
