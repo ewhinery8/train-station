@@ -298,14 +298,15 @@ jobs:
           
           # Check that train-station has no dependencies
           echo "Checking train-station dependencies..."
-          DEPS=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1 | grep -v "train-station" | grep -c "^" || echo "0")
+          TREE_OUTPUT=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1)
+          DEPS=$(echo "$TREE_OUTPUT" | grep -v "train-station" | wc -l | tr -d ' ')
           
           if [ "$DEPS" -eq 0 ]; then
             echo "Zero-dependency principle maintained"
           else
             echo "Zero-dependency principle violated"
             echo "Dependencies found:"
-            cargo tree -p train-station --target ${{ matrix.target }} --depth 1
+            echo "$TREE_OUTPUT"
             exit 1
           fi
           
