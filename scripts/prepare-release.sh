@@ -97,42 +97,51 @@ OTHER_COMMITS=""
 # Process each commit individually to get full messages
 if [ -n "$COMMIT_HASHES" ]; then
     for commit in $COMMIT_HASHES; do
-        # Get the full commit message
-        COMMIT_MSG=$(git log --format="%B" -n 1 "$commit" | sed '/^$/d' | sed 's/^/  /')
+        # Get the commit subject and body separately
         SUBJECT=$(git log --format="%s" -n 1 "$commit")
+        BODY=$(git log --format="%b" -n 1 "$commit" | sed '/^$/d' | sed 's/^/  /')
+        
+        # Create the full commit entry
+        COMMIT_ENTRY="- $(echo "$SUBJECT" | sed 's/^[a-z]*[^:]*: //')"
+        if [ -n "$BODY" ]; then
+            COMMIT_ENTRY="$COMMIT_ENTRY"$'\n'"$BODY"
+        fi
         
         # Categorize based on conventional commit type
         if [[ "$SUBJECT" =~ ^feat[^:]*: ]]; then
             if [ -n "$FEAT_COMMITS" ]; then
-                FEAT_COMMITS="$FEAT_COMMITS"$'\n'
+                FEAT_COMMITS="$FEAT_COMMITS"$'\n\n'
             fi
-            FEAT_COMMITS="$FEAT_COMMITS- $(echo "$SUBJECT" | sed 's/^feat[^:]*: //')"$'\n'"$COMMIT_MSG"
+            FEAT_COMMITS="$FEAT_COMMITS$COMMIT_ENTRY"
         elif [[ "$SUBJECT" =~ ^fix[^:]*: ]]; then
             if [ -n "$FIX_COMMITS" ]; then
-                FIX_COMMITS="$FIX_COMMITS"$'\n'
+                FIX_COMMITS="$FIX_COMMITS"$'\n\n'
             fi
-            FIX_COMMITS="$FIX_COMMITS- $(echo "$SUBJECT" | sed 's/^fix[^:]*: //')"$'\n'"$COMMIT_MSG"
+            FIX_COMMITS="$FIX_COMMITS$COMMIT_ENTRY"
         elif [[ "$SUBJECT" =~ ^perf[^:]*: ]]; then
             if [ -n "$PERF_COMMITS" ]; then
-                PERF_COMMITS="$PERF_COMMITS"$'\n'
+                PERF_COMMITS="$PERF_COMMITS"$'\n\n'
             fi
-            PERF_COMMITS="$PERF_COMMITS- $(echo "$SUBJECT" | sed 's/^perf[^:]*: //')"$'\n'"$COMMIT_MSG"
+            PERF_COMMITS="$PERF_COMMITS$COMMIT_ENTRY"
         elif [[ "$SUBJECT" =~ ^docs[^:]*: ]]; then
             if [ -n "$DOCS_COMMITS" ]; then
-                DOCS_COMMITS="$DOCS_COMMITS"$'\n'
+                DOCS_COMMITS="$DOCS_COMMITS"$'\n\n'
             fi
-            DOCS_COMMITS="$DOCS_COMMITS- $(echo "$SUBJECT" | sed 's/^docs[^:]*: //')"$'\n'"$COMMIT_MSG"
+            DOCS_COMMITS="$DOCS_COMMITS$COMMIT_ENTRY"
         elif [[ "$SUBJECT" =~ ^chore[^:]*: ]] && [[ ! "$SUBJECT" =~ release ]]; then
             if [ -n "$CHORE_COMMITS" ]; then
-                CHORE_COMMITS="$CHORE_COMMITS"$'\n'
+                CHORE_COMMITS="$CHORE_COMMITS"$'\n\n'
             fi
-            CHORE_COMMITS="$CHORE_COMMITS- $(echo "$SUBJECT" | sed 's/^chore[^:]*: //')"$'\n'"$COMMIT_MSG"
+            CHORE_COMMITS="$CHORE_COMMITS$COMMIT_ENTRY"
         else
             # Handle other commit types (refactor, test, style, etc.)
             if [ -n "$OTHER_COMMITS" ]; then
-                OTHER_COMMITS="$OTHER_COMMITS"$'\n'
+                OTHER_COMMITS="$OTHER_COMMITS"$'\n\n'
             fi
-            OTHER_COMMITS="$OTHER_COMMITS- $SUBJECT"$'\n'"$COMMIT_MSG"
+            OTHER_COMMITS="$OTHER_COMMITS- $SUBJECT"
+            if [ -n "$BODY" ]; then
+                OTHER_COMMITS="$OTHER_COMMITS"$'\n'"$BODY"
+            fi
         fi
     done
 fi
@@ -196,10 +205,14 @@ if [ -f "CHANGELOG.md" ]; then
     # Create temporary file for updated changelog
     UPDATED_CHANGELOG=$(mktemp)
     
-    # Copy everything up to and including the [Unreleased] section
-    sed -n '1,/^## \[Unreleased\]/p' CHANGELOG.md > "$UPDATED_CHANGELOG"
+    # Find where the Unreleased section ends
+    UNRELEASED_END=$(grep -n "^## \[Unreleased\]" CHANGELOG.md | cut -d: -f1)
+    FIRST_RELEASE=$(grep -n "^## \[[0-9]" CHANGELOG.md | head -1 | cut -d: -f1)
     
-    # Reset the Unreleased section
+    # Copy header and Unreleased section title
+    sed -n "1,${UNRELEASED_END}p" CHANGELOG.md > "$UPDATED_CHANGELOG"
+    
+    # Add reset Unreleased section
     echo "" >> "$UPDATED_CHANGELOG"
     echo "### Added" >> "$UPDATED_CHANGELOG"
     echo "- " >> "$UPDATED_CHANGELOG"
@@ -226,8 +239,10 @@ if [ -f "CHANGELOG.md" ]; then
     # Add the new version section
     cat "$TEMP_CHANGELOG" >> "$UPDATED_CHANGELOG"
     
-    # Add all existing version sections (skip the Unreleased section)
-    sed -n '/^## \[Unreleased\]/,/^## \[.*\] - /{ /^## \[Unreleased\]/d; /^## \[.*\] - /,$p }' CHANGELOG.md >> "$UPDATED_CHANGELOG"
+    # Add all existing releases (preserve everything from first release onward)
+    if [ -n "$FIRST_RELEASE" ]; then
+        sed -n "${FIRST_RELEASE},\$p" CHANGELOG.md >> "$UPDATED_CHANGELOG"
+    fi
     
     # Replace the original changelog
     mv "$UPDATED_CHANGELOG" "CHANGELOG.md"

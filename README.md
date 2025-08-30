@@ -38,7 +38,7 @@ Due to the zero dependency nature, building across various platforms and distrub
 
 With this said, the project is in its infancy, and we plan on rapidly expanding operation support, functionality, and eventually adding CUDA support (also, please report any bugs discovered so that we can patch things up as quickly as possible). Feel free to help contribute as we expand functionality and support!
 
-Why "Train Station"? 
+Why Train Station? 
 
 Simplicity, familiarity, performance, ease of use.
 
@@ -251,15 +251,15 @@ Our CI system provides comprehensive cross-platform validation:
 
 Train Station is **fully tested and supported** across all major platforms with comprehensive CI/CD validation:
 
-- ✅ **Linux** (Ubuntu 22.04+, other distributions) - Baseline reference platform
-- ✅ **Windows** (Windows 10+, via Git Bash or WSL2) - Full compatibility testing
-- ✅ **macOS** (macOS 12+, Intel and Apple Silicon) - Native ARM64 support
+- **Linux** (Ubuntu 22.04+, other distributions) - Baseline reference platform
+- **Windows** (Windows 10+, via Git Bash or WSL2) - Full compatibility testing
+- **macOS** (macOS 12+, Intel and Apple Silicon) - Native ARM64 support
 
 **Architecture Compatibility**:
-- ✅ **x86_64** - Full native support with AVX2 SIMD optimizations
-- ✅ **ARM64** - Cross-compilation support for Apple Silicon, Linux ARM64, and embedded systems
-- ✅ **ARMv7** - Cross-compilation support for Raspberry Pi and embedded devices
-- ✅ **WebAssembly** - Future web and WASI support via `wasm32-unknown-unknown`
+- **x86_64** - Full native support with AVX2 SIMD optimizations
+- **ARM64** - Cross-compilation support for Apple Silicon, Linux ARM64, and embedded systems
+- **ARMv7** - Cross-compilation support for Raspberry Pi and embedded devices
+- **WebAssembly** - Future web and WASI support via `wasm32-unknown-unknown`
 
 **Quality Assurance**: Every release is validated across all supported platforms through our multi-platform CI/CD pipeline.
 
@@ -303,10 +303,10 @@ sudo apt update && sudo apt install build-essential  # Ubuntu/Debian
 ```
 
 **Linux Advantages**:
-- ✅ **Fastest CI execution** - Primary testing platform
-- ✅ **LibTorch validation available** - Full mathematical validation support
-- ✅ **Native GNU tools** - Optimal script compatibility
-- ✅ **Zero setup complexity** - Works immediately after Rust installation
+- **Fastest CI execution** - Primary testing platform
+- **LibTorch validation available** - Full mathematical validation support
+- **Native GNU tools** - Optimal script compatibility
+- **Zero setup complexity** - Works immediately after Rust installation
 
 #### Windows (WSL2 Recommended)
 
@@ -331,10 +331,10 @@ cargo check  # Validated through Windows CI
 ```
 
 **Windows Platform Notes**:
-- ✅ **Full CI validation** - Every release tested on Windows latest
-- ✅ **Git Bash compatibility** - All development tools work in Git Bash
-- ⚠️ **LibTorch limitations** - Use WSL2 for LibTorch validation if needed
-- ✅ **Cross-compilation support** - Can cross-compile for other targets
+- **Full CI validation** - Every release tested on Windows latest
+- **Git Bash compatibility** - All development tools work in Git Bash
+- **LibTorch limitations** - Use WSL2 for LibTorch validation if needed
+- **Cross-compilation support** - Can cross-compile for other targets
 
 #### macOS (Full Native Support)
 
@@ -350,10 +350,10 @@ xcode-select --install
 ```
 
 **macOS Platform Notes**:
-- ✅ **Apple Silicon native** - Full ARM64 optimization on M1/M2/M3 Macs
-- ✅ **Intel Mac support** - Complete x86_64 compatibility
-- ✅ **BSD tool compatibility** - All scripts adapted for macOS differences
-- ✅ **DYLD_LIBRARY_PATH support** - LibTorch validation available
+- **Apple Silicon native** - Full ARM64 optimization on M1/M2/M3 Macs
+- **Intel Mac support** - Complete x86_64 compatibility
+- **BSD tool compatibility** - All scripts adapted for macOS differences
+- **DYLD_LIBRARY_PATH support** - LibTorch validation available
 
 ### Cross-Compilation Support
 
@@ -406,8 +406,8 @@ train-station = { version = "0.1", features = ["cuda"] }
 ```
 
 #### Platform-Specific Feature Support
-- **Default features**: ✅ All platforms (Linux, Windows, macOS, all architectures)
-- **CUDA features**: ⚠️ Experimental (Linux/WSL2 recommended, limited Windows/macOS support)
+- **Default features**: All platforms (Linux, Windows, macOS, all architectures)
+- **CUDA features**: Experimental (Linux/WSL2 recommended, limited Windows/macOS support)
 
 #### Feature Flag Validation
 ```bash

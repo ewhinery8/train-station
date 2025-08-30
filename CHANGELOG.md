@@ -28,6 +28,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - 
 
+## [0.1.5] - 2025-08-30
+
+### Added
+- No new features
+
+### Fixed
+- No bug fixes
+
+### Performance
+- No performance improvements
+
+### Documentation
+- No documentation changes
+
+### Maintenance
+- No maintenance changes
+
+### Other Changes
+- refactor: removing build process from release workflow
+
 ## [0.1.4] - 2025-08-30
 
 ### Added
@@ -58,3 +78,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No other changes
 
 ## [0.1.3] - 2025-08-28
+
+### Fixed
+- skipping build.rs for docs.rs env
+
+## [0.1.2] - 2025-08-28
+
+### Maintenance
+- adding publishing metadata to toml
+
+## [0.1.1] - 2025-08-28
+
+### Documentation
+- updated png hosting in README to github
+
+## [0.1.0] - 2025-08-28
+
+### Added
+- initial commit and release v0.1.0 - ship it!
