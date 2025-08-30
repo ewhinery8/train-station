@@ -61,17 +61,17 @@ jobs:
           # Check that Cargo.toml is valid
           echo "Validating Cargo.toml..."
           cargo metadata --no-deps --format-version 1 > /dev/null
-          echo "✓ Cargo.toml is valid"
+          echo "Cargo.toml is valid"
           
           # Check that code compiles (quick check)
           echo "Quick compilation check..."
           cargo check --lib -p train-station
-          echo "✓ Core library compiles"
+          echo "Core library compiles"
           
           # Run a subset of tests for quick feedback
           echo "Running core tests..."
           cargo test -p train-station --lib --no-run
-          echo "✓ Tests compile successfully"
+          echo "Tests compile successfully"
           
           echo "=== CI summary validation complete ==="
           echo ""

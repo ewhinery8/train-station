@@ -245,9 +245,9 @@ jobs:
           # Cross-compile the core train-station library
           echo "Cross-compiling train-station library..."
           if cargo check --target ${{ matrix.target }} --lib -p train-station; then
-            echo "✓ Core library cross-compilation successful"
+            echo "Core library cross-compilation successful"
           else
-            echo "✗ Core library cross-compilation failed"
+            echo "Core library cross-compilation failed"
             exit 1
           fi
           
@@ -263,27 +263,27 @@ jobs:
           # Test compilation with no features (default)
           echo "Testing default features..."
           if cargo check --target ${{ matrix.target }} --lib -p train-station --no-default-features; then
-            echo "✓ No features compilation successful"
+            echo "No features compilation successful"
           else
-            echo "✗ No features compilation failed"
+            echo "No features compilation failed"
             exit 1
           fi
           
           # Test CUDA feature flag (should compile but may not link on some targets)
           echo "Testing CUDA feature flag..."
           if cargo check --target ${{ matrix.target }} --lib -p train-station --features cuda; then
-            echo "✓ CUDA feature compilation successful"
+            echo "CUDA feature compilation successful"
           else
-            echo "⚠ CUDA feature compilation failed (may be expected for ${{ matrix.target }})"
+            echo "WARNING: CUDA feature compilation failed (may be expected for ${{ matrix.target }})"
             # Don't fail the build for CUDA feature issues on cross-compilation targets
           fi
           
           # Test all features together
           echo "Testing all features..."
           if cargo check --target ${{ matrix.target }} --lib -p train-station --all-features; then
-            echo "✓ All features compilation successful"
+            echo "All features compilation successful"
           else
-            echo "⚠ All features compilation failed (may be expected for ${{ matrix.target }})"
+            echo "WARNING: All features compilation failed (may be expected for ${{ matrix.target }})"
             # Don't fail the build for all features issues on cross-compilation targets
           fi
           
@@ -298,12 +298,12 @@ jobs:
           
           # Check that train-station has no dependencies
           echo "Checking train-station dependencies..."
-          DEPS=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1 | grep -v "train-station" | wc -l)
+          DEPS=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1 | grep -v "train-station" | grep -c "^" || echo "0")
           
           if [ "$DEPS" -eq 0 ]; then
-            echo "✓ Zero-dependency principle maintained"
+            echo "Zero-dependency principle maintained"
           else
-            echo "✗ Zero-dependency principle violated"
+            echo "Zero-dependency principle violated"
             echo "Dependencies found:"
             cargo tree -p train-station --target ${{ matrix.target }} --depth 1
             exit 1
@@ -312,10 +312,10 @@ jobs:
           # Verify no external crates are pulled in
           echo "Verifying no external crates..."
           if cargo check --target ${{ matrix.target }} --lib -p train-station --no-default-features 2>&1 | grep -q "Downloading"; then
-            echo "⚠ External crates may be downloaded (checking further...)"
+            echo "WARNING: External crates may be downloaded (checking further...)"
             # This is just a warning, as some targets may require std library components
           else
-            echo "✓ No external crates downloaded"
+            echo "No external crates downloaded"
           fi
           
           echo "=== Zero-dependency validation complete ==="
@@ -332,30 +332,30 @@ jobs:
               echo "WebAssembly-specific validation..."
               # Check that no_std compatibility works for WASM
               if cargo check --target ${{ matrix.target }} --lib -p train-station --no-default-features; then
-                echo "✓ WebAssembly no_std compatibility verified"
+                echo "WebAssembly no_std compatibility verified"
               else
-                echo "✗ WebAssembly no_std compatibility failed"
+                echo "WebAssembly no_std compatibility failed"
                 exit 1
               fi
               ;;
             *-windows-*)
               echo "Windows-specific validation..."
               # Verify Windows targets compile correctly
-              echo "✓ Windows target validation complete"
+              echo "Windows target validation complete"
               ;;
             *-apple-*)
               echo "Apple-specific validation..."
               # Verify Apple targets compile correctly
-              echo "✓ Apple target validation complete"
+              echo "Apple target validation complete"
               ;;
             *-linux-*)
               echo "Linux-specific validation..."
               # Verify Linux targets compile correctly
-              echo "✓ Linux target validation complete"
+              echo "Linux target validation complete"
               ;;
             *)
               echo "Generic target validation..."
-              echo "✓ Generic target validation complete"
+              echo "Generic target validation complete"
               ;;
           esac
           
@@ -370,12 +370,12 @@ jobs:
           echo "Description: ${{ matrix.description }}"
           echo "Host OS: ${{ matrix.os }}"
           echo ""
-          echo "✅ Results:"
-          echo "  ✓ Target installation successful"
-          echo "  ✓ Core library cross-compilation successful"
-          echo "  ✓ Feature flag compatibility verified"
-          echo "  ✓ Zero-dependency principle maintained"
-          echo "  ✓ Target-specific validation passed"
+          echo "Results:"
+          echo "  - Target installation successful"
+          echo "  - Core library cross-compilation successful"
+          echo "  - Feature flag compatibility verified"
+          echo "  - Zero-dependency principle maintained"
+          echo "  - Target-specific validation passed"
           echo ""
           echo "Cross-compilation for ${{ matrix.target }} completed successfully!"
           echo "Train Station is compatible with ${{ matrix.description }}"
