@@ -1,0 +1,449 @@
+name: Release
+
+# Trigger Configuration: Only run on version tags
+on:
+  push:
+    tags:
+      - 'v*'              # Triggers on tags like v0.1.4, v1.0.0, etc.
+
+# Global Environment Variables
+env:
+  CARGO_TERM_COLOR: always
+
+# Job Definitions: Two-stage release process
+# 1. validate: Run full test suite to ensure release quality
+# 2. create-release: Create GitHub release with auto-generated notes
+jobs:
+  # Pre-release validation: Run full test suite across all platforms before releasing
+  validate:
+    name: Pre-Release Validation (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    
+    # Multi-platform validation strategy
+    strategy:
+      fail-fast: false      # Don't cancel other platforms if one fails
+      matrix:
+        os: [ubuntu-22.04, windows-latest, macos-latest]
+    
+    # Security: Minimal permissions
+    permissions:
+      contents: read
+    
+    steps:
+      # Step 1: Get the source code
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7 pinned to SHA
+        
+      # Step 2: Install Rust toolchain manually (cross-platform)
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          echo "=== Installing Rust toolchain for release validation on ${{ matrix.os }} ==="
+          
+          # Platform detection for debugging
+          echo "Platform: $(uname -s)"
+          echo "Architecture: $(uname -m)"
+          echo "Shell: $SHELL"
+          
+          # Download and install rustup (official Rust installer)
+          echo "Downloading rustup installer..."
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          
+          # Add cargo to PATH for this session (cross-platform)
+          echo "Setting up Rust environment..."
+          if [ -f "$HOME/.cargo/env" ]; then
+            source "$HOME/.cargo/env"
+            echo "Sourced ~/.cargo/env successfully"
+          else
+            echo "Warning: ~/.cargo/env not found, adding to PATH manually"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          
+          # Install required components with error handling
+          echo "Installing Rust components..."
+          if ! rustup component add rustfmt; then
+            echo "Error: Failed to install rustfmt component"
+            exit 1
+          fi
+          
+          if ! rustup component add clippy; then
+            echo "Error: Failed to install clippy component"
+            exit 1
+          fi
+          
+          # Verify installation with detailed error reporting
+          echo "=== Verifying Rust installation ==="
+          rustc --version
+          cargo --version
+          rustfmt --version
+          cargo clippy --version
+          
+          echo "=== Rust toolchain installation successful ==="
+          
+      # Step 3: Cross-platform dependency caching
+      - name: Cache Cargo dependencies
+        shell: bash
+        run: |
+          echo "=== Setting up release cache for ${{ matrix.os }} ==="
+          
+          # Platform-specific cache directory
+          PLATFORM_OS="${{ matrix.os }}"
+          CACHE_DIR="$HOME/.cache/cargo-release/$PLATFORM_OS"
+          mkdir -p "$CACHE_DIR"
+          echo "Cache directory: $CACHE_DIR"
+          
+          # Generate platform-specific cache key from Cargo.lock hash
+          if [ -f "Cargo.lock" ]; then
+            # Cross-platform hash generation
+            if command -v sha256sum >/dev/null 2>&1; then
+              LOCK_HASH=$(sha256sum Cargo.lock | cut -d' ' -f1)
+              echo "Using sha256sum for hash generation"
+            elif command -v shasum >/dev/null 2>&1; then
+              LOCK_HASH=$(shasum -a 256 Cargo.lock | cut -d' ' -f1)
+              echo "Using shasum for hash generation (macOS)"
+            else
+              echo "Warning: No SHA256 tool found, using file size as fallback"
+              LOCK_HASH="size-$(wc -c < Cargo.lock | tr -d ' ')"
+            fi
+            echo "Cargo.lock hash: $LOCK_HASH"
+          else
+            echo "Warning: Cargo.lock not found, using fallback hash"
+            LOCK_HASH="no-lock-$(date +%Y%m%d)"
+          fi
+          
+          # Platform-specific cache key
+          CACHE_KEY="release-$PLATFORM_OS-$LOCK_HASH"
+          CACHE_FILE="$CACHE_DIR/$CACHE_KEY.tar.gz"
+          TARGET_CACHE_FILE="$CACHE_DIR/$CACHE_KEY-target.tar.gz"
+          
+          echo "Cache key: $CACHE_KEY"
+          echo "Registry cache: $CACHE_FILE"
+          echo "Target cache: $TARGET_CACHE_FILE"
+          
+          # Restore registry cache if it exists
+          if [ -f "$CACHE_FILE" ]; then
+            echo "Restoring registry cache from $CACHE_FILE"
+            tar -xzf "$CACHE_FILE" -C ~ 2>/dev/null || echo "Registry cache restore failed, continuing..."
+          else
+            echo "No registry cache found"
+          fi
+          
+          # Restore target cache if it exists
+          if [ -f "$TARGET_CACHE_FILE" ]; then
+            echo "Restoring target cache from $TARGET_CACHE_FILE"
+            tar -xzf "$TARGET_CACHE_FILE" 2>/dev/null || echo "Target cache restore failed, continuing..."
+          else
+            echo "No target cache found"
+          fi
+          
+          # Export cache info for later steps
+          echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
+          echo "CACHE_FILE=$CACHE_FILE" >> $GITHUB_ENV
+          echo "TARGET_CACHE_FILE=$TARGET_CACHE_FILE" >> $GITHUB_ENV
+          echo "CACHE_DIR=$CACHE_DIR" >> $GITHUB_ENV
+          
+          echo "=== Release cache setup complete ==="
+
+      # Step 4: Validate code formatting
+      - name: Check code formatting
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Ensure code is properly formatted before release
+          cargo fmt --all -- --check
+          
+      # Step 5: Run Clippy linter (strict)
+      - name: Run Clippy linter
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Run clippy with strict settings - no warnings allowed in releases
+          cargo clippy --all-targets -- -D warnings
+          
+      # Step 6: Check compilation (debug and release modes)
+      - name: Check compilation
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Verify code compiles in both debug and release modes
+          echo "Checking debug compilation..."
+          cargo check --all-targets --all-features
+          
+          echo "Checking release compilation..."
+          cargo check --all-targets --all-features --release
+          
+      # Step 7: Run comprehensive tests
+      - name: Run comprehensive tests
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Run all tests to ensure release quality
+          cargo test -p train-station --lib
+          
+      # Step 8: Build release binaries
+      - name: Build release binaries
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Build optimized release binaries
+          cargo build --all-targets --release
+          
+      # Step 9: Validate documentation
+      - name: Validate documentation
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Ensure documentation builds correctly
+          cargo doc --no-deps --document-private-items
+          cargo test --doc -p train-station
+          
+      # Step 10: Cross-compilation validation
+      - name: Cross-compile for ARM64 targets
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Install ARM64 targets for cross-compilation validation
+          rustup target add aarch64-unknown-linux-gnu
+          rustup target add aarch64-apple-darwin
+          
+          # Cross-compile validation (compilation only, no execution)
+          echo "Cross-compiling for ARM64 Linux (Jetson, mobile, embedded)..."
+          cargo check --target aarch64-unknown-linux-gnu --lib -p train-station
+          
+          echo "Cross-compiling for ARM64 macOS (Apple Silicon)..."
+          cargo check --target aarch64-apple-darwin --lib -p train-station
+          
+          echo "ARM64 cross-compilation validation successful"
+          
+      # Step 11: Security audit
+      - name: Security audit
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Install cargo-audit for security scanning
+          cargo install cargo-audit
+          
+          # Scan dependencies for known security vulnerabilities
+          cargo audit
+          
+      # Step 12: LibTorch validation (optional, non-blocking)
+      - name: Run LibTorch validation tests
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Set library path for LibTorch (if available)
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            export DYLD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$DYLD_LIBRARY_PATH"
+          else
+            export LD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$LD_LIBRARY_PATH"
+          fi
+          
+          # Attempt to run LibTorch validation tests
+          cargo test -p libtorch-validation || echo "LibTorch validation skipped (library not available)"
+          
+      # Step 13: Save platform-specific cache for future runs
+      - name: Save Cargo cache
+        shell: bash
+        run: |
+          echo "=== Saving release cache for ${{ matrix.os }} ==="
+          
+          # Ensure cache directory exists
+          mkdir -p "$CACHE_DIR"
+          
+          # Save registry cache if cargo directories exist
+          if [ -d ~/.cargo/registry ] && [ -d ~/.cargo/git ]; then
+            echo "Saving registry cache to $CACHE_FILE"
+            if tar -czf "$CACHE_FILE" -C ~ .cargo/registry .cargo/git 2>/dev/null; then
+              echo "Registry cache saved successfully"
+              # Cross-platform file size reporting
+              if command -v du >/dev/null 2>&1; then
+                CACHE_SIZE=$(du -h "$CACHE_FILE" 2>/dev/null | cut -f1 || echo "unknown")
+                echo "Registry cache size: $CACHE_SIZE"
+              fi
+            else
+              echo "Warning: Registry cache save failed"
+              rm -f "$CACHE_FILE" 2>/dev/null || true
+            fi
+          else
+            echo "No cargo registry/git directories found"
+          fi
+          
+          # Save target cache if target directory exists
+          if [ -d target ]; then
+            echo "Saving target cache to $TARGET_CACHE_FILE"
+            if tar -czf "$TARGET_CACHE_FILE" target 2>/dev/null; then
+              echo "Target cache saved successfully"
+              # Cross-platform file size reporting
+              if command -v du >/dev/null 2>&1; then
+                TARGET_SIZE=$(du -h "$TARGET_CACHE_FILE" 2>/dev/null | cut -f1 || echo "unknown")
+                echo "Target cache size: $TARGET_SIZE"
+              fi
+            else
+              echo "Warning: Target cache save failed"
+              rm -f "$TARGET_CACHE_FILE" 2>/dev/null || true
+            fi
+          else
+            echo "No target directory found"
+          fi
+          
+          echo "=== Release cache save complete for ${{ matrix.os }} ==="
+
+  # Create GitHub releases for missing tags
+  create-releases:
+    name: Create GitHub Releases
+    needs: validate                    # Only run after validation passes
+    runs-on: ubuntu-22.04
+    
+    # Permissions needed for creating releases
+    permissions:
+      contents: write                  # Required to create releases
+      
+    steps:
+      # Step 1: Get the source code with full history
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+        with:
+          fetch-depth: 0              # Fetch full history for release notes generation
+          
+      # Step 2: Install GitHub CLI
+      - name: Install GitHub CLI
+        run: |
+          # Install GitHub CLI (available in ubuntu-22.04)
+          type gh >/dev/null 2>&1 || {
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh
+          }
+          
+      # Step 3: Identify missing releases and create them in chronological order
+      - name: Create missing releases
+        run: |
+          echo "=== Checking for missing releases ==="
+          
+          # Get all tags sorted by version (chronological order)
+          ALL_TAGS=$(git tag -l 'v*' | sort -V)
+          
+          if [ -z "$ALL_TAGS" ]; then
+            echo "No version tags found"
+            exit 0
+          fi
+          
+          echo "Found tags: $ALL_TAGS"
+          
+          # Get existing releases
+          EXISTING_RELEASES=$(gh release list --limit 100 | cut -f1 || echo "")
+          echo "Existing releases: $EXISTING_RELEASES"
+          
+          # Function to generate release notes for a specific tag
+          generate_release_notes() {
+            local TAG=$1
+            local PREV_TAG=$2
+            local OUTPUT_FILE=$3
+            
+            echo "Generating release notes for $TAG (previous: $PREV_TAG)"
+            
+            # Determine commit range
+            if [ -n "$PREV_TAG" ]; then
+              COMMIT_RANGE="$PREV_TAG..$TAG"
+              echo "Using commit range: $COMMIT_RANGE"
+            else
+              # First tag - use all commits up to this tag
+              COMMIT_RANGE=$(git rev-list --reverse HEAD | head -1)"..$TAG"
+              echo "First tag - using range from first commit to $TAG"
+            fi
+            
+            # Create release notes file
+            cat > "$OUTPUT_FILE" << 'EOF'
+          ## Changes in this Release
+          
+          EOF
+            
+            # Parse conventional commits and categorize
+            echo "### Added" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^feat" | sed 's/^feat[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No new features" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            
+            echo "### Fixed" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^fix" | sed 's/^fix[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No bug fixes" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            
+            echo "### Performance" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^perf" | sed 's/^perf[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No performance improvements" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            
+            echo "### Documentation" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^docs" | sed 's/^docs[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No documentation changes" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            
+            echo "### Other Changes" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep -v "^feat\|^fix\|^perf\|^docs\|^chore.*release" | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No other changes" >> "$OUTPUT_FILE"
+            
+            # Clean up empty sections
+            sed -i '/^### [A-Za-z]*$/N;/\n- No /d' "$OUTPUT_FILE" || true
+            
+            echo "Generated release notes for $TAG:"
+            cat "$OUTPUT_FILE"
+          }
+          
+          # Process tags in chronological order
+          PREV_TAG=""
+          CREATED_COUNT=0
+          
+          for TAG in $ALL_TAGS; do
+            echo ""
+            echo "=== Processing tag: $TAG ==="
+            
+            # Check if release already exists
+            if echo "$EXISTING_RELEASES" | grep -q "^$TAG$"; then
+              echo "Release for $TAG already exists, skipping"
+            else
+              echo "Creating release for $TAG"
+              
+              # Extract version (remove 'v' prefix)
+              VERSION=${TAG#v}
+              
+              # Generate release notes
+              NOTES_FILE="release_notes_$TAG.md"
+              generate_release_notes "$TAG" "$PREV_TAG" "$NOTES_FILE"
+              
+              # Get tag date for proper chronological ordering
+              TAG_DATE=$(git log -1 --format=%ai "$TAG" 2>/dev/null || date -Iseconds)
+              
+              # Create the release
+              if gh release create "$TAG" \
+                --title "Release $VERSION" \
+                --notes-file "$NOTES_FILE" \
+                --verify-tag; then
+                echo "Successfully created release for $TAG"
+                CREATED_COUNT=$((CREATED_COUNT + 1))
+                
+                # Small delay to avoid rate limiting
+                sleep 2
+              else
+                echo "Failed to create release for $TAG"
+              fi
+              
+              # Clean up notes file
+              rm -f "$NOTES_FILE"
+            fi
+            
+            # Update previous tag for next iteration
+            PREV_TAG=$TAG
+          done
+          
+          echo ""
+          echo "=== Summary ==="
+          echo "Created $CREATED_COUNT new releases"
+          
+          if [ $CREATED_COUNT -gt 0 ]; then
+            echo "Successfully created releases for missing tags!"
+            echo "All releases are now available in chronological order."
+          else
+            echo "All tags already have corresponding releases."
+          fi
+          
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+

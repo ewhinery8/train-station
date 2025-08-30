@@ -1,267 +1,290 @@
 #!/bin/bash
 set -e
 
-# Simple release preparation script for train-station
+# Release preparation script for train-station
 # Usage: ./scripts/prepare-release.sh <version>
+# Example: ./scripts/prepare-release.sh 0.1.4
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Helper functions
-error() {
-    echo -e "${RED}Error: $1${NC}" >&2
-    exit 1
-}
-
-info() {
-    echo -e "${BLUE}Info: $1${NC}"
-}
-
-success() {
-    echo -e "${GREEN}Success: $1${NC}"
-}
-
-warning() {
-    echo -e "${YELLOW}Warning: $1${NC}"
-}
-
-# Check if version argument provided
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <version>"
     echo "Example: $0 0.1.4"
     echo ""
     echo "This script will:"
-    echo "  1. Validate the environment and version format"
-    echo "  2. Update version in Cargo.toml"
-    echo "  3. Generate release notes from git log"
-    echo "  4. Update CHANGELOG.md"
-    echo "  5. Run tests to ensure everything works"
-    echo "  6. Provide instructions for completing the release"
+    echo "1. Validate environment and version format"
+    echo "2. Update version in Cargo.toml"
+    echo "3. Generate changelog entries from git log"
+    echo "4. Run tests to ensure everything works"
+    echo "5. Prepare commit and tag commands"
     exit 1
 fi
 
 VERSION=$1
 
-info "Preparing release $VERSION..."
+echo "=== Train Station Release Preparation ==="
+echo "Target version: $VERSION"
+echo ""
 
-# Validate version format (basic semver check)
+# Validate version format (semantic versioning)
 if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    error "Version must be in semver format (e.g., 0.1.4)"
+    echo "Error: Invalid version format '$VERSION'"
+    echo "Expected format: MAJOR.MINOR.PATCH (e.g., 0.1.4)"
+    exit 1
 fi
 
-# Verify we're on main branch
+# Verify we're on master branch
 BRANCH=$(git branch --show-current)
-if [ "$BRANCH" != "main" ]; then
-    error "Must be on main branch to create release (currently on: $BRANCH)"
+if [ "$BRANCH" != "master" ]; then
+    echo "Error: Must be on master branch to create release"
+    echo "Current branch: $BRANCH"
+    echo ""
+    echo "Switch to master first:"
+    echo "  git checkout master"
+    echo "  git pull origin master"
+    exit 1
 fi
 
 # Verify working directory is clean
 if [ -n "$(git status --porcelain)" ]; then
-    error "Working directory is not clean. Please commit or stash changes first."
+    echo "Error: Working directory is not clean"
+    echo "Please commit or stash your changes first:"
+    git status --short
+    exit 1
 fi
 
-# Check if we're up to date with remote
-git fetch origin main
-LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse origin/main)
+# Verify we're up to date with remote
+echo "Checking if master is up to date..."
+git fetch origin master
+LOCAL=$(git rev-parse master)
+REMOTE=$(git rev-parse origin/master)
 if [ "$LOCAL" != "$REMOTE" ]; then
-    error "Local main branch is not up to date with origin/main. Please pull latest changes."
+    echo "Error: Local master is not up to date with origin/master"
+    echo "Please pull the latest changes:"
+    echo "  git pull origin master"
+    exit 1
 fi
 
-# Check if tag already exists
-if git tag -l | grep -q "^v$VERSION$"; then
-    error "Tag v$VERSION already exists"
-fi
-
-# Get current version from Cargo.toml
-CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-info "Current version: $CURRENT_VERSION"
-info "New version: $VERSION"
-
-# Verify this is a version bump (basic check)
-if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-    error "New version ($VERSION) is the same as current version ($CURRENT_VERSION)"
-fi
-
-# Check for unmerged feature branches (warning only)
-info "Checking for unmerged feature branches..."
-unmerged_branches=$(git branch -r --no-merged main | grep -E 'origin/(feat|fix|perf)/' | head -5 || true)
+# Check for unmerged feature branches
+echo "Checking for unmerged feature branches..."
+unmerged_branches=$(git branch -r --no-merged master | grep -E 'origin/(feat|fix|perf)/' | head -5 || true)
 if [ -n "$unmerged_branches" ]; then
-    warning "Found unmerged feature branches:"
+    echo "Warning: Found unmerged feature branches:"
     echo "$unmerged_branches"
     echo ""
     read -p "Continue with release? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        info "Release cancelled"
-        exit 0
+        echo "Release cancelled"
+        exit 1
     fi
+fi
+
+# Get current version from Cargo.toml
+CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+echo "Current version: $CURRENT_VERSION"
+echo "Target version: $VERSION"
+
+# Check if version is newer
+if [ "$CURRENT_VERSION" = "$VERSION" ]; then
+    echo "Error: Version $VERSION is the same as current version"
+    echo "Please specify a newer version"
+    exit 1
 fi
 
 # Update version in Cargo.toml
-info "Updating version in Cargo.toml..."
+echo ""
+echo "=== Updating Cargo.toml ==="
 sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
-success "Updated Cargo.toml version to $VERSION"
+echo "Updated version in Cargo.toml to $VERSION"
 
-# Generate release notes from git log
-info "Generating release notes from git log..."
+# Generate changelog entries from git log
+echo ""
+echo "=== Generating Changelog Entries ==="
+
+# Get the last tag to determine commit range
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-
 if [ -n "$LAST_TAG" ]; then
-    info "Generating changes since $LAST_TAG"
     COMMIT_RANGE="$LAST_TAG..HEAD"
+    echo "Generating changelog from $LAST_TAG to HEAD"
 else
-    info "No previous tags found, generating all commits"
-    COMMIT_RANGE="HEAD"
+    # If no tags exist, use all commits
+    FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+    COMMIT_RANGE="$FIRST_COMMIT..HEAD"
+    echo "Generating changelog from first commit to HEAD (no previous tags)"
 fi
 
-# Create temporary file for release notes
-TEMP_NOTES=$(mktemp)
+# Create temporary changelog content
+TEMP_CHANGELOG=$(mktemp)
+echo "## [$VERSION] - $(date +%Y-%m-%d)" > "$TEMP_CHANGELOG"
+echo "" >> "$TEMP_CHANGELOG"
 
-# Generate release notes by parsing conventional commits
-echo "# Release Notes for v$VERSION" > "$TEMP_NOTES"
-echo "" >> "$TEMP_NOTES"
-echo "## Changes" >> "$TEMP_NOTES"
-echo "" >> "$TEMP_NOTES"
+# Parse conventional commits and categorize
+echo "### Added" >> "$TEMP_CHANGELOG"
+FEAT_COMMITS=$(git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^feat" | sed 's/^feat[^:]*: /- /' || true)
+if [ -n "$FEAT_COMMITS" ]; then
+    echo "$FEAT_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No new features" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
 
-# Parse commits and categorize them
-git log --pretty=format:"%s" $COMMIT_RANGE | while IFS= read -r commit; do
-    case "$commit" in
-        feat:*|feat\(*\):*)
-            echo "### Added" >> "$TEMP_NOTES.added" 2>/dev/null || echo "### Added" > "$TEMP_NOTES.added"
-            echo "- ${commit#feat*: }" >> "$TEMP_NOTES.added"
-            ;;
-        fix:*|fix\(*\):*)
-            echo "### Fixed" >> "$TEMP_NOTES.fixed" 2>/dev/null || echo "### Fixed" > "$TEMP_NOTES.fixed"
-            echo "- ${commit#fix*: }" >> "$TEMP_NOTES.fixed"
-            ;;
-        perf:*|perf\(*\):*)
-            echo "### Performance" >> "$TEMP_NOTES.perf" 2>/dev/null || echo "### Performance" > "$TEMP_NOTES.perf"
-            echo "- ${commit#perf*: }" >> "$TEMP_NOTES.perf"
-            ;;
-        docs:*|docs\(*\):*)
-            echo "### Documentation" >> "$TEMP_NOTES.docs" 2>/dev/null || echo "### Documentation" > "$TEMP_NOTES.docs"
-            echo "- ${commit#docs*: }" >> "$TEMP_NOTES.docs"
-            ;;
-        refactor:*|refactor\(*\):*)
-            echo "### Changed" >> "$TEMP_NOTES.changed" 2>/dev/null || echo "### Changed" > "$TEMP_NOTES.changed"
-            echo "- ${commit#refactor*: }" >> "$TEMP_NOTES.changed"
-            ;;
-        test:*|test\(*\):*)
-            echo "### Testing" >> "$TEMP_NOTES.test" 2>/dev/null || echo "### Testing" > "$TEMP_NOTES.test"
-            echo "- ${commit#test*: }" >> "$TEMP_NOTES.test"
-            ;;
-        chore:*|chore\(*\):*)
-            # Skip chore commits in release notes unless they're important
-            if [[ "$commit" == *"release"* ]] || [[ "$commit" == *"version"* ]]; then
-                continue
-            fi
-            echo "### Maintenance" >> "$TEMP_NOTES.chore" 2>/dev/null || echo "### Maintenance" > "$TEMP_NOTES.chore"
-            echo "- ${commit#chore*: }" >> "$TEMP_NOTES.chore"
-            ;;
-        *)
-            echo "### Other" >> "$TEMP_NOTES.other" 2>/dev/null || echo "### Other" > "$TEMP_NOTES.other"
-            echo "- $commit" >> "$TEMP_NOTES.other"
-            ;;
-    esac
-done
+echo "### Fixed" >> "$TEMP_CHANGELOG"
+FIX_COMMITS=$(git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^fix" | sed 's/^fix[^:]*: /- /' || true)
+if [ -n "$FIX_COMMITS" ]; then
+    echo "$FIX_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No bug fixes" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
 
-# Combine all sections in order
-for section in added fixed perf changed docs test chore other; do
-    if [ -f "$TEMP_NOTES.$section" ]; then
-        echo "" >> "$TEMP_NOTES"
-        cat "$TEMP_NOTES.$section" >> "$TEMP_NOTES"
-        rm -f "$TEMP_NOTES.$section"
-    fi
-done
+echo "### Performance" >> "$TEMP_CHANGELOG"
+PERF_COMMITS=$(git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^perf" | sed 's/^perf[^:]*: /- /' || true)
+if [ -n "$PERF_COMMITS" ]; then
+    echo "$PERF_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No performance improvements" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
 
-# Update CHANGELOG.md
-info "Updating CHANGELOG.md..."
-DATE=$(date +%Y-%m-%d)
+echo "### Documentation" >> "$TEMP_CHANGELOG"
+DOCS_COMMITS=$(git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^docs" | sed 's/^docs[^:]*: /- /' || true)
+if [ -n "$DOCS_COMMITS" ]; then
+    echo "$DOCS_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No documentation changes" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
 
-# Create backup of CHANGELOG.md
-cp CHANGELOG.md CHANGELOG.md.backup
+echo "### Other Changes" >> "$TEMP_CHANGELOG"
+OTHER_COMMITS=$(git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep -v "^feat\|^fix\|^perf\|^docs\|^chore.*release" | sed 's/^/- /' || true)
+if [ -n "$OTHER_COMMITS" ]; then
+    echo "$OTHER_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No other changes" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
 
-# Create new CHANGELOG.md with the new version
-{
-    # Keep header
-    sed -n '1,/^## \[Unreleased\]/p' CHANGELOG.md
+# Update CHANGELOG.md by inserting new version after [Unreleased]
+if [ -f "CHANGELOG.md" ]; then
+    echo "Updating CHANGELOG.md..."
     
-    # Add empty unreleased section
-    echo ""
-    echo "### Added"
-    echo "- "
-    echo ""
-    echo "### Changed"
-    echo "- "
-    echo ""
-    echo "### Fixed"
-    echo "- "
-    echo ""
-    echo "### Performance"
-    echo "- "
-    echo ""
-    echo "### Security"
-    echo "- "
-    echo ""
+    # Create temporary file for updated changelog
+    UPDATED_CHANGELOG=$(mktemp)
     
-    # Add new version section
-    echo "## [$VERSION] - $DATE"
-    echo ""
+    # Copy everything up to and including the [Unreleased] section
+    sed -n '1,/^## \[Unreleased\]/p' CHANGELOG.md > "$UPDATED_CHANGELOG"
     
-    # Add generated release notes (skip the header)
-    tail -n +4 "$TEMP_NOTES"
-    echo ""
+    # Reset the Unreleased section
+    echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Added" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Changed" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Fixed" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Performance" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Security" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
     
-    # Add rest of changelog (skip unreleased section)
-    sed -n '/^## \[Unreleased\]/,$p' CHANGELOG.md | tail -n +2 | sed '/^### Added/,/^### Security/{/^### Security/!d;}' | tail -n +2
+    # Add the new version section
+    cat "$TEMP_CHANGELOG" >> "$UPDATED_CHANGELOG"
     
-} > CHANGELOG.md.new
+    # Add all existing version sections (skip the Unreleased section)
+    sed -n '/^## \[Unreleased\]/,/^## \[.*\] - /{ /^## \[Unreleased\]/d; /^## \[.*\] - /,$p }' CHANGELOG.md >> "$UPDATED_CHANGELOG"
+    
+    # Replace the original changelog
+    mv "$UPDATED_CHANGELOG" "CHANGELOG.md"
+    echo "CHANGELOG.md updated successfully"
+else
+    echo "Warning: CHANGELOG.md not found, creating new one..."
+    cat > "CHANGELOG.md" << EOF
+# Changelog
 
-mv CHANGELOG.md.new CHANGELOG.md
-rm -f CHANGELOG.md.backup
-success "Updated CHANGELOG.md"
+All notable changes to this project will be documented in this file.
 
-# Clean up temp files
-rm -f "$TEMP_NOTES"
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- 
+
+### Changed
+- 
+
+### Fixed
+- 
+
+### Performance
+- 
+
+### Security
+- 
+
+EOF
+    cat "$TEMP_CHANGELOG" >> "CHANGELOG.md"
+fi
+
+# Clean up temporary file
+rm "$TEMP_CHANGELOG"
+
+# Show the generated changelog section
+echo ""
+echo "=== Generated Changelog Section ==="
+sed -n "/^## \[$VERSION\]/,/^## \[/{ /^## \[/{ /$VERSION/p; /$VERSION/!q }; /^## \[/!p }" CHANGELOG.md
 
 # Run tests to make sure everything works
-info "Running tests..."
-if cargo test -p train-station --lib --quiet; then
-    success "All tests passed"
+echo ""
+echo "=== Running Tests ==="
+echo "Running core library tests..."
+if cargo test -p train-station --lib; then
+    echo "✓ Core tests passed"
 else
-    error "Tests failed. Please fix issues before releasing."
+    echo "✗ Core tests failed"
+    echo "Please fix test failures before releasing"
+    exit 1
 fi
 
-# Show preview of changes
-info "Preview of changes:"
-echo ""
-echo "=== CHANGELOG.md (new section) ==="
-sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | head -n -1
-echo ""
+# Check if code compiles in release mode
+echo "Checking release build..."
+if cargo build --release; then
+    echo "✓ Release build successful"
+else
+    echo "✗ Release build failed"
+    echo "Please fix build errors before releasing"
+    exit 1
+fi
 
-echo "=== Cargo.toml version ==="
-grep "^version = " Cargo.toml
+# Prepare final instructions
 echo ""
-
-# Final instructions
-success "Release preparation complete!"
+echo "=== Release Preparation Complete! ==="
 echo ""
-info "Next steps:"
-echo "1. Review the changes above"
-echo "2. If everything looks good, run:"
+echo "Changes made:"
+echo "- Updated Cargo.toml version to $VERSION"
+echo "- Updated CHANGELOG.md with new version section"
+echo "- All tests passed"
+echo ""
+echo "Next steps:"
+echo "1. Review the changes:"
+echo "   git diff"
+echo ""
+echo "2. Commit the release:"
 echo "   git add Cargo.toml CHANGELOG.md"
 echo "   git commit -m \"chore: release version $VERSION\""
+echo ""
+echo "3. Create and push the tag:"
 echo "   git tag v$VERSION"
-echo "   git push origin main --tags"
+echo "   git push origin master --tags"
 echo ""
-echo "3. GitHub Actions will handle:"
-echo "   - Running comprehensive tests"
-echo "   - Creating GitHub release"
-echo "   - Publishing to crates.io"
+echo "4. The GitHub Actions will automatically:"
+echo "   - Run full test suite"
+echo "   - Create GitHub release with auto-generated notes"
+echo "   - Handle any missing releases for existing tags"
 echo ""
-warning "If you need to make changes, the release can be cancelled at any time before pushing the tag."
+echo "Release preparation completed successfully! 🚀"

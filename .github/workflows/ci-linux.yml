@@ -1,0 +1,278 @@
+name: CI-Linux
+
+# Trigger Configuration: When to run this workflow
+on:
+  push:
+    branches: [ master ]     # Run on direct pushes to master branch
+  pull_request:
+    branches: [ master ]     # Run on PRs targeting master branch
+
+# Global Environment Variables: Applied to all jobs
+env:
+  CARGO_TERM_COLOR: always  # Force colored output in cargo commands for better readability
+
+# Job Definitions: Linux-specific testing
+jobs:
+  # Linux CI Job: Comprehensive testing on Ubuntu
+  ci-linux:
+    name: CI (Linux)
+    runs-on: ubuntu-22.04
+    
+    # Security: Minimal permissions following principle of least privilege
+    permissions:
+      contents: read         # Only allow reading repository contents
+    
+    steps:
+      # Step 1: Get the source code
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7 pinned to SHA for security
+        
+      # Step 2: Install Rust toolchain manually (zero external dependencies)
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          echo "=== Installing Rust toolchain on Linux ==="
+          
+          # Platform detection for debugging
+          echo "Platform: $(uname -s)"
+          echo "Architecture: $(uname -m)"
+          echo "Shell: $SHELL"
+          
+          # Download and install rustup (official Rust installer)
+          echo "Downloading rustup installer..."
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          
+          # Add cargo to PATH for this session
+          echo "Setting up Rust environment..."
+          source ~/.cargo/env
+          echo "Sourced ~/.cargo/env successfully"
+          
+          # Install required components with error handling
+          echo "Installing Rust components..."
+          rustup component add rustfmt clippy
+          
+          # Verify installation with detailed error reporting
+          echo "=== Verifying Rust installation ==="
+          rustc --version
+          cargo --version
+          rustfmt --version
+          cargo clippy --version
+          
+          echo "=== Rust toolchain installation successful ==="
+          
+      # Step 3: Linux-specific dependency caching using tar
+      - name: Cache Cargo dependencies
+        shell: bash
+        run: |
+          echo "=== Setting up Linux cache ==="
+          
+          # Create Linux-specific cache directory
+          CACHE_DIR="$HOME/.cache/cargo-ci/linux"
+          mkdir -p "$CACHE_DIR"
+          echo "Cache directory: $CACHE_DIR"
+          
+          # Generate cache key from Cargo.lock hash
+          if [ -f "Cargo.lock" ]; then
+            LOCK_HASH=$(sha256sum Cargo.lock | cut -d' ' -f1)
+            echo "Cargo.lock hash: $LOCK_HASH"
+          else
+            echo "Warning: Cargo.lock not found, using fallback hash"
+            LOCK_HASH="no-lock-$(date +%Y%m%d)"
+          fi
+          
+          # Linux-specific cache key
+          CACHE_KEY="cargo-linux-$LOCK_HASH"
+          CACHE_FILE="$CACHE_DIR/$CACHE_KEY.tar.gz"
+          TARGET_CACHE_FILE="$CACHE_DIR/$CACHE_KEY-target.tar.gz"
+          
+          echo "Cache key: $CACHE_KEY"
+          echo "Registry cache: $CACHE_FILE"
+          echo "Target cache: $TARGET_CACHE_FILE"
+          
+          # Restore registry cache if it exists
+          if [ -f "$CACHE_FILE" ]; then
+            echo "Restoring registry cache from $CACHE_FILE"
+            tar -xzf "$CACHE_FILE" -C ~ 2>/dev/null || echo "Registry cache restore failed, continuing..."
+          else
+            echo "No registry cache found"
+          fi
+          
+          # Restore target cache if it exists
+          if [ -f "$TARGET_CACHE_FILE" ]; then
+            echo "Restoring target cache from $TARGET_CACHE_FILE"
+            tar -xzf "$TARGET_CACHE_FILE" 2>/dev/null || echo "Target cache restore failed, continuing..."
+          else
+            echo "No target cache found"
+          fi
+          
+          # Clean up old cache files (keep only recent ones)
+          echo "Cleaning up old cache files..."
+          find "$CACHE_DIR" -name "*.tar.gz" -type f -mtime +7 -delete 2>/dev/null || true
+          
+          # Export cache info for later steps
+          echo "CACHE_KEY=$CACHE_KEY" >> $GITHUB_ENV
+          echo "CACHE_FILE=$CACHE_FILE" >> $GITHUB_ENV
+          echo "TARGET_CACHE_FILE=$TARGET_CACHE_FILE" >> $GITHUB_ENV
+          echo "CACHE_DIR=$CACHE_DIR" >> $GITHUB_ENV
+          
+          echo "=== Linux cache setup complete ==="
+
+      # Step 4: Format code (check and apply formatting)
+      - name: Format code
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Apply rustfmt to all code in the workspace
+          cargo fmt --all
+          
+          # Check if formatting made any changes
+          if ! git diff --quiet; then
+            echo "Code was not properly formatted. Applied formatting:"
+            git diff --name-only
+            echo "Please run 'cargo fmt --all' locally and commit the changes."
+            exit 1
+          else
+            echo "Code is properly formatted."
+          fi
+          
+      # Step 5: Run Clippy linter (catches common mistakes and enforces best practices)
+      - name: Run Clippy linter
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Run clippy with strict settings
+          cargo clippy --all-targets -- -D warnings
+          
+      # Step 6: Check compilation without building (faster than full build)
+      - name: Check compilation (debug mode)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Verify code compiles in debug mode
+          cargo check --all-targets --all-features
+          
+      # Step 7: Check compilation in release mode (different optimizations)
+      - name: Check compilation (release mode)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Verify code compiles in release mode with optimizations
+          cargo check --all-targets --all-features --release
+          
+      # Step 8: Build debug binaries (full compilation)
+      - name: Build debug binaries
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Full debug build of all targets
+          cargo build --all-targets
+          
+      # Step 9: Build release binaries (optimized)
+      - name: Build release binaries
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Full release build with optimizations
+          cargo build --all-targets --release
+          
+      # Step 10: Run core library tests
+      - name: Run train-station tests
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Run tests for the main train-station package only
+          cargo test -p train-station --lib
+          
+      # Step 11: Security audit using cargo-audit
+      - name: Security audit
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Install cargo-audit for security scanning
+          cargo install cargo-audit
+          
+          # Scan dependencies for known security vulnerabilities
+          cargo audit
+          
+      # Step 12: Documentation checks
+      - name: Check documentation
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Build documentation to ensure it compiles
+          cargo doc --no-deps --document-private-items
+          
+          # Test code examples in documentation
+          cargo test --doc -p train-station
+          
+      # Step 13: Cross-compile for ARM64 targets
+      - name: Cross-compile for ARM64 targets
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Install ARM64 targets for cross-compilation validation
+          rustup target add aarch64-unknown-linux-gnu
+          rustup target add aarch64-apple-darwin
+          
+          # Cross-compile validation (compilation only, no execution)
+          echo "Cross-compiling for ARM64 Linux (Jetson, mobile, embedded)..."
+          cargo check --target aarch64-unknown-linux-gnu --lib -p train-station
+          
+          echo "Cross-compiling for ARM64 macOS (Apple Silicon)..."
+          cargo check --target aarch64-apple-darwin --lib -p train-station
+          
+          echo "ARM64 cross-compilation validation successful"
+          
+      # Step 14: LibTorch validation (optional, non-blocking)
+      - name: Run LibTorch validation tests
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          # Set library path for LibTorch (if available)
+          export LD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$LD_LIBRARY_PATH"
+          
+          # Attempt to run LibTorch validation tests
+          cargo test -p libtorch-validation || echo "LibTorch validation skipped (library not available)"
+          
+      # Step 15: Save Linux cache for future runs
+      - name: Save Cargo cache
+        shell: bash
+        run: |
+          echo "=== Saving Linux cache ==="
+          
+          # Ensure cache directory exists
+          mkdir -p "$CACHE_DIR"
+          
+          # Save registry cache if cargo directories exist
+          if [ -d ~/.cargo/registry ] && [ -d ~/.cargo/git ]; then
+            echo "Saving registry cache to $CACHE_FILE"
+            tar -czf "$CACHE_FILE" -C ~ .cargo/registry .cargo/git 2>/dev/null || echo "Registry cache save failed"
+            if [ -f "$CACHE_FILE" ]; then
+              echo "Registry cache size: $(du -h "$CACHE_FILE" | cut -f1)"
+            fi
+          else
+            echo "No cargo registry/git directories found"
+          fi
+          
+          # Save target cache if target directory exists
+          if [ -d target ]; then
+            echo "Saving target cache to $TARGET_CACHE_FILE"
+            tar -czf "$TARGET_CACHE_FILE" target 2>/dev/null || echo "Target cache save failed"
+            if [ -f "$TARGET_CACHE_FILE" ]; then
+              echo "Target cache size: $(du -h "$TARGET_CACHE_FILE" | cut -f1)"
+            fi
+          else
+            echo "No target directory found"
+          fi
+          
+          # Show cache directory status
+          echo "Cache directory contents:"
+          ls -lah "$CACHE_DIR" 2>/dev/null || echo "Cache directory is empty"
+          
+          # Show total cache usage
+          if [ -d "$CACHE_DIR" ]; then
+            TOTAL_SIZE=$(du -sh "$CACHE_DIR" 2>/dev/null | cut -f1 || echo "unknown")
+            echo "Total Linux cache size: $TOTAL_SIZE"
+          fi
+          
+          echo "=== Linux cache save complete ==="

@@ -6,7 +6,11 @@ Thank you for considering contributing to Train Station! We welcome contribution
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
+- [Branch Naming Convention](#branch-naming-convention)
+- [Commit Message Convention](#commit-message-convention)
+- [Development Workflow](#development-workflow)
 - [Development Setup](#development-setup)
+- [Developer Tools and Scripts](#developer-tools-and-scripts)
 - [Contributing Guidelines](#contributing-guidelines)
 - [Performance Requirements](#performance-requirements)
 - [Testing Standards](#testing-standards)
@@ -15,6 +19,8 @@ Thank you for considering contributing to Train Station! We welcome contribution
 - [Issue Reporting](#issue-reporting)
 - [Code Style](#code-style)
 - [Areas for Contribution](#areas-for-contribution)
+- [Release Process](#release-process)
+- [CI/CD Workflow](#cicd-workflow)
 
 ## Code of Conduct
 
@@ -101,9 +107,9 @@ git config commit.template .gitmessage
 
 ### 1. Create a Feature Branch
 ```bash
-# Ensure you're on main and up to date
-git checkout main
-git pull upstream main
+# Ensure you're on master and up to date
+git checkout master
+git pull upstream master
 
 # Create feature branch following naming convention
 git checkout -b feat/tensor-broadcasting
@@ -120,7 +126,7 @@ git push origin feat/tensor-broadcasting
 ```
 
 ### 3. Create Pull Request
-- Go to GitHub and create a PR from your branch to `main`
+- Go to GitHub and create a PR from your branch to `master`
 - Fill out the PR template with clear description
 - Ensure all CI checks pass
 - Request review from maintainers
@@ -133,24 +139,114 @@ git push origin feat/tensor-broadcasting
 - For CUDA development: CUDA Toolkit 11.0+
 - For validation testing: LibTorch (see libtorch-validation/README.md)
 
-### Basic Setup
+### Platform-Specific Setup
+
+#### Linux (Recommended - Baseline Reference Platform)
+
+Linux serves as our baseline reference platform with the most straightforward setup:
+
+```bash
+# Ubuntu/Debian - Install build essentials
+sudo apt update
+sudo apt install build-essential curl git
+
+# Install Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Install required components
+rustup component add rustfmt clippy
+
+# Clone and test
+git clone https://github.com/yourusername/train-station.git
+cd train-station
+cargo test -p train-station --lib
+```
+
+**Linux Advantages**:
+- ✅ Native GNU tools (sha256sum, find -delete)
+- ✅ Standard LD_LIBRARY_PATH for LibTorch
+- ✅ Fastest CI execution
+- ✅ Most compatible with helper scripts
+
+#### Windows (WSL2 Recommended)
+
+**Option A: WSL2 (Strongly Recommended)**
+```bash
+# Install WSL2 with Ubuntu
+wsl --install -d Ubuntu
+
+# Inside WSL2, follow Linux setup above
+# WSL2 provides full Linux compatibility
+```
+
+**Option B: Git Bash (Alternative)**
+```bash
+# Install Git for Windows (includes Git Bash)
+# Download from: https://git-scm.com/download/win
+
+# In Git Bash:
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Restart Git Bash to reload PATH
+rustup component add rustfmt clippy
+```
+
+**Windows Platform Notes**:
+- ✅ WSL2 provides full Linux compatibility
+- ⚠️ Git Bash has some tool limitations (no sha256sum fallback to file size)
+- ⚠️ PowerShell/CMD not recommended for development
+- ✅ All CI workflows test Windows compatibility
+
+#### macOS (BSD Tool Considerations)
+
+```bash
+# Install Xcode command line tools
+xcode-select --install
+
+# Install Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source ~/.cargo/env
+
+# Install required components
+rustup component add rustfmt clippy
+
+# Clone and test
+git clone https://github.com/yourusername/train-station.git
+cd train-station
+cargo test -p train-station --lib
+```
+
+**macOS Platform Notes**:
+- ✅ Native Apple Silicon (ARM64) support
+- ⚠️ Uses BSD tools (shasum vs sha256sum, different find behavior)
+- ✅ DYLD_LIBRARY_PATH for LibTorch (instead of LD_LIBRARY_PATH)
+- ✅ All scripts adapted for BSD compatibility
+
+### Basic Setup (All Platforms)
+
+After platform-specific setup above:
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/train-station.git
 cd train-station
 
-# Run tests
-cargo test -p train-station
+# Run core tests
+cargo test -p train-station --lib
 
-# Run examples
-cargo run --example tensor_basics
+# Run formatting and linting
+cargo fmt --all
+cargo clippy --all-targets
+
+# Build release binaries
+cargo build --all-targets --release
 ```
 
 ### LibTorch Validation Setup (Optional)
 
 For mathematical validation and performance benchmarking:
 
+#### Linux/WSL2
 ```bash
 # Download LibTorch and extract to libtorch-validation/libtorch/
 # Then set library path
@@ -158,6 +254,201 @@ export LD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$LD_LIBRARY_PATH"
 
 # Run validation tests
 cargo test -p libtorch-validation
+```
+
+#### macOS
+```bash
+# Download LibTorch and extract to libtorch-validation/libtorch/
+# Then set library path (macOS uses DYLD_LIBRARY_PATH)
+export DYLD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$DYLD_LIBRARY_PATH"
+
+# Run validation tests
+cargo test -p libtorch-validation
+```
+
+#### Windows (Git Bash)
+```bash
+# LibTorch validation typically not available on Windows
+# Use WSL2 for LibTorch validation if needed
+```
+
+## Developer Tools and Scripts
+
+### Supported Development Environment
+
+**Multi-Platform Support**: Train Station supports development on all major platforms with platform-specific optimizations.
+
+#### Platform Recommendations
+
+**Linux (Baseline Reference)**:
+- ✅ **Recommended for**: Primary development, fastest CI, LibTorch validation
+- ✅ **Advantages**: Native GNU tools, fastest execution, most script compatibility
+- ✅ **Best for**: Contributors doing heavy development work
+
+**Windows (WSL2 Strongly Recommended)**:
+- ✅ **WSL2**: Full Linux compatibility, recommended for all Windows development
+- ⚠️ **Git Bash**: Alternative option with some limitations (no LibTorch validation)
+- ❌ **PowerShell/CMD**: Not recommended for development
+
+**macOS (Full Native Support)**:
+- ✅ **Recommended for**: Apple Silicon development, native ARM64 testing
+- ✅ **Advantages**: Native Apple Silicon support, BSD tool compatibility
+- ⚠️ **Considerations**: Uses BSD tools (shasum, different find behavior)
+
+#### Development Environment Features
+
+**Cross-Platform Script Compatibility**:
+- All scripts designed for bash shell environments
+- Automatic tool detection (sha256sum vs shasum)
+- Platform-specific fallbacks and adaptations
+- Consistent behavior across all supported platforms
+
+**Platform-Specific Optimizations**:
+- **Linux**: GNU tools, LD_LIBRARY_PATH, fastest CI execution
+- **Windows**: Git Bash compatibility, Windows path handling
+- **macOS**: BSD tool support, DYLD_LIBRARY_PATH, Apple Silicon native
+
+### Available Scripts
+
+All helper scripts are located in the `scripts/` directory:
+
+#### `scripts/create-branch.sh` - Branch Creation Helper
+**Purpose**: Creates feature branches following project naming conventions
+
+```bash
+# Usage
+./scripts/create-branch.sh <type> <description>
+
+# Examples
+./scripts/create-branch.sh feat tensor-broadcasting
+./scripts/create-branch.sh fix memory-leak-in-autograd
+./scripts/create-branch.sh perf simd-optimization
+```
+
+**What it does**:
+- Validates branch type and description format
+- Ensures clean working directory and master branch
+- Checks for existing branches (local and remote)
+- Updates master branch and creates new feature branch
+- Provides next steps and commit message guidance
+
+#### `scripts/add-changelog-entry.sh` - Changelog Management
+**Purpose**: Adds entries to CHANGELOG.md in proper format
+
+```bash
+# Usage
+./scripts/add-changelog-entry.sh <type> <description>
+
+# Examples
+./scripts/add-changelog-entry.sh added "tensor broadcasting support"
+./scripts/add-changelog-entry.sh fixed "memory leak in gradient computation"
+./scripts/add-changelog-entry.sh performance "SIMD optimization for operations"
+```
+
+**What it does**:
+- Validates entry type (added, changed, fixed, performance, security)
+- Locates correct section in Unreleased area
+- Intelligently adds entries (replaces placeholders or inserts)
+- Maintains Keep a Changelog format
+- Shows commit commands for documentation updates
+
+#### `scripts/prepare-release.sh` - Release Preparation
+**Purpose**: Comprehensive release preparation and validation
+
+```bash
+# Usage (maintainers only)
+./scripts/prepare-release.sh <version>
+
+# Example
+./scripts/prepare-release.sh 0.1.4
+```
+
+**What it does**:
+- Validates environment (clean working directory, master branch, up-to-date)
+- Updates version in Cargo.toml
+- Generates changelog entries from conventional commits
+- Updates CHANGELOG.md with new version section
+- Runs comprehensive tests (core tests, release build)
+- Provides exact commands for committing and tagging
+
+### Development Workflow with Scripts
+
+#### Complete Feature Development Flow
+```bash
+# 1. Create feature branch
+./scripts/create-branch.sh feat matrix-multiplication
+
+# 2. Make your changes
+# ... code changes ...
+
+# 3. Add changelog entry (optional, for significant changes)
+./scripts/add-changelog-entry.sh added "matrix multiplication with SIMD optimization"
+
+# 4. Commit changes
+git add .
+git commit -m "feat: add matrix multiplication with SIMD optimization"
+
+# 5. Push and create PR
+git push -u origin feat/matrix-multiplication
+# Create PR on GitHub using the PR template
+```
+
+#### Release Process (Maintainers)
+```bash
+# 1. Prepare release
+./scripts/prepare-release.sh 0.1.4
+
+# 2. Review changes
+git diff
+
+# 3. Commit release
+git add Cargo.toml CHANGELOG.md
+git commit -m "chore: release version 0.1.4"
+
+# 4. Create and push tag
+git tag v0.1.4
+git push origin master --tags
+
+# 5. GitHub Actions handles the rest automatically
+```
+
+### Additional Resources
+
+#### Configuration Files
+- `.gitmessage` - Commit message template (use: `git config commit.template .gitmessage`)
+- `.github/pull_request_template.md` - PR template for consistent submissions
+- `.github/BRANCH_NAMING.md` - Detailed branch naming convention guide
+
+#### GitHub Workflows
+- `.github/workflows/ci.yml` - Continuous Integration (runs on PRs and main pushes)
+- `.github/workflows/release.yml` - Release automation (triggered by version tags)
+
+#### Documentation Files
+- `CHANGELOG.md` - Project changelog following Keep a Changelog format
+- `CONTRIBUTING.md` - This file (complete contribution guidelines)
+- `README.md` - Project overview with badges and quick start
+
+### Script Requirements
+
+All scripts require:
+- **Bash shell** (version 4.0+)
+- **Git** (for repository operations)
+- **Standard Unix tools** (sed, grep, curl, date)
+- **Project root directory** (scripts must be run from workspace root)
+
+### Troubleshooting Scripts
+
+#### Common Issues
+- **Permission denied**: Run `chmod +x scripts/*.sh` to make scripts executable
+- **Command not found**: Ensure you're in the project root directory
+- **Git errors**: Ensure you have proper git configuration and remote access
+
+#### Getting Help
+```bash
+# All scripts show usage help without arguments
+./scripts/create-branch.sh
+./scripts/add-changelog-entry.sh  
+./scripts/prepare-release.sh
 ```
 
 ## Contributing Guidelines
@@ -310,7 +601,7 @@ Document performance characteristics:
 
 ### Before Submitting
 
-1. Rebase on latest main: `git rebase upstream/main`
+1. Rebase on latest master: `git rebase upstream/master`
 2. Run full test suite: `cargo test`
 3. Check formatting: `cargo fmt`
 4. Run Clippy: `cargo clippy`
@@ -455,6 +746,310 @@ Examples:
 - Check existing documentation
 - Look at similar implementations in the codebase
 - Ask in discussions for design questions
+
+## Release Process
+
+### For Contributors
+- Follow branch naming convention (`<type>/<description>`)
+- Follow conventional commit messages (`<type>: <description>`)
+- No need to update CHANGELOG.md manually (automated)
+- No need to worry about versioning
+
+### For Maintainers
+
+#### Creating a Release
+1. **Prepare the release**:
+   ```bash
+   ./scripts/prepare-release.sh 0.1.4
+   ```
+
+2. **Review and commit**:
+   ```bash
+   git add Cargo.toml CHANGELOG.md
+   git commit -m "chore: release version 0.1.4"
+   ```
+
+3. **Create and push tag**:
+   ```bash
+   git tag v0.1.4
+   git push origin master --tags
+   ```
+
+4. **Automated process handles**:
+   - Runs comprehensive tests (blocks release if tests fail)
+   - Creates GitHub release with auto-generated release notes
+   - Updates CHANGELOG.md in repository
+   - Handles missing releases for existing tags
+
+#### Manual Changelog Generation (if needed)
+```bash
+# Preview unreleased changes
+git log --oneline --pretty=format:"%s" $(git describe --tags --abbrev=0)..HEAD
+
+# Update CHANGELOG.md manually if needed
+# Follow Keep a Changelog format
+```
+
+## CI/CD Workflow
+
+### Multi-Platform Continuous Integration
+
+Our CI system provides comprehensive testing across all supported platforms:
+
+#### CI Workflow Structure
+```
+Push/PR → Triggers Multiple CI Workflows
+├── CI Summary (ubuntu-22.04) - Quick validation
+├── CI-Linux (ubuntu-22.04) - Full Linux testing
+├── CI-Windows (windows-latest) - Full Windows testing
+├── CI-macOS (macos-latest) - Full macOS testing
+└── Cross-Compilation - 9 target architectures
+```
+
+#### Platform-Specific CI Workflows
+
+**Linux CI (ci-linux.yml)**
+- **Platform**: Ubuntu 22.04 (GNU tools baseline)
+- **Shell**: bash
+- **Tools**: sha256sum, find -delete, LD_LIBRARY_PATH
+- **Features**: Fastest execution, LibTorch validation available
+- **ARM64**: Cross-compilation for aarch64-unknown-linux-gnu
+
+**Windows CI (ci-windows.yml)**  
+- **Platform**: Windows latest (Git Bash environment)
+- **Shell**: bash (for consistency)
+- **Tools**: sha256sum (via Git Bash), Windows-compatible paths
+- **Features**: MSVC/MinGW compatibility testing
+- **ARM64**: Cross-compilation for aarch64-apple-darwin
+
+**macOS CI (ci-macos.yml)**
+- **Platform**: macOS latest (BSD tools)
+- **Shell**: bash
+- **Tools**: shasum -a 256, BSD find, DYLD_LIBRARY_PATH
+- **Features**: Apple Silicon native support, BSD compatibility
+- **ARM64**: Native aarch64-apple-darwin testing
+
+#### What Each CI Platform Tests
+- **Code formatting** (`cargo fmt --all -- --check`)
+- **Linting** (`cargo clippy --all-targets -- -D warnings`)
+- **Compilation** (debug and release modes with --all-features)
+- **Core tests** (`cargo test -p train-station --lib`)
+- **Documentation** (`cargo doc` and `cargo test --doc`)
+- **Security audit** (`cargo audit`)
+- **Cross-compilation** (ARM64 targets)
+- **LibTorch validation** (non-blocking, platform-dependent)
+
+#### Cross-Platform Consistency
+All platforms use:
+- ✅ **Same shell**: `shell: bash` for consistency
+- ✅ **Same Rust installation**: Manual rustup with error handling
+- ✅ **Same validation steps**: Identical test commands
+- ✅ **Platform-specific adaptations**: Tool detection and fallbacks
+
+#### CI Requirements
+- ✅ **All platforms must pass** - No platform-specific exceptions
+- ✅ **Code must be formatted** - Consistent across all platforms
+- ✅ **No clippy warnings** - Zero warnings policy
+- ✅ **Documentation must build** - Cross-platform doc compatibility
+- ✅ **Cross-compilation must work** - ARM64 targets validated
+
+### Multi-Platform Release Workflow
+
+Triggered by pushing version tags (`v*`):
+
+#### Release Validation Matrix
+```yaml
+validate:
+  strategy:
+    matrix:
+      os: [ubuntu-22.04, windows-latest, macos-latest]
+```
+
+**Enhanced Release Process**:
+1. **Multi-platform pre-release validation** - ALL platforms must pass
+2. **Comprehensive testing** - Full CI suite on each platform
+3. **Cross-compilation validation** - ARM64 targets on all platforms
+4. **Security auditing** - Dependency vulnerability scanning
+5. **Create GitHub release** - Only after all platforms validate
+6. **Missing release fix-up** - Historical release management
+
+#### Release Platform Requirements
+Each platform must pass:
+- ✅ **Formatting validation** - `cargo fmt --all -- --check`
+- ✅ **Linting validation** - `cargo clippy --all-targets -- -D warnings`
+- ✅ **Compilation validation** - Debug and release modes
+- ✅ **Test validation** - `cargo test -p train-station --lib`
+- ✅ **Documentation validation** - Doc building and testing
+- ✅ **Cross-compilation validation** - ARM64 target compilation
+- ✅ **Security validation** - `cargo audit` vulnerability scanning
+
+#### Release Notes Generation
+- **Automatic categorization** from conventional commits
+- **Added** - `feat:` commits
+- **Fixed** - `fix:` commits  
+- **Performance** - `perf:` commits
+- **Documentation** - `docs:` commits
+- **Other Changes** - remaining commits
+
+### Troubleshooting CI
+
+#### Common Issues (All Platforms)
+- **Formatting failures**: Run `cargo fmt --all` locally
+- **Clippy warnings**: Run `cargo clippy --all-targets -- -D warnings` locally
+- **Test failures**: Run `cargo test -p train-station --lib` locally
+- **Doc failures**: Run `cargo doc --no-deps --document-private-items` locally
+- **Cross-compilation failures**: Install target with `rustup target add <target>`
+
+#### Platform-Specific Troubleshooting
+
+##### Linux-Specific Issues
+```bash
+# Missing build tools
+sudo apt update
+sudo apt install build-essential
+
+# LibTorch validation path issues
+export LD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$LD_LIBRARY_PATH"
+
+# Cache permission issues
+rm -rf ~/.cache/cargo-ci/linux
+```
+
+**Common Linux Errors**:
+- ✅ **"gcc not found"** → Install `build-essential`
+- ✅ **"sha256sum not found"** → Should not occur on Linux
+- ✅ **LibTorch linking errors** → Check `LD_LIBRARY_PATH`
+
+##### Windows-Specific Issues
+```bash
+# WSL2 setup (recommended)
+wsl --install -d Ubuntu
+# Then follow Linux setup inside WSL2
+
+# Git Bash PATH issues
+# Restart Git Bash after rustup installation
+source ~/.cargo/env
+
+# Cache issues in Git Bash
+rm -rf ~/.cache/cargo-ci/windows
+```
+
+**Common Windows Errors**:
+- ✅ **"rustup not found"** → Restart Git Bash after installation
+- ✅ **"sha256sum not found"** → Uses file size fallback in Git Bash
+- ✅ **Path separator issues** → Use WSL2 for full compatibility
+- ✅ **LibTorch not available** → Use WSL2 for LibTorch validation
+
+##### macOS-Specific Issues
+```bash
+# Missing Xcode tools
+xcode-select --install
+
+# LibTorch validation path issues (note DYLD vs LD)
+export DYLD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$DYLD_LIBRARY_PATH"
+
+# BSD find compatibility issues
+# Scripts automatically detect and adapt
+
+# Cache cleanup issues
+rm -rf ~/.cache/cargo-ci/macos
+```
+
+**Common macOS Errors**:
+- ✅ **"clang not found"** → Install Xcode command line tools
+- ✅ **"sha256sum not found"** → Uses `shasum -a 256` automatically
+- ✅ **BSD find differences** → Scripts handle automatically
+- ✅ **LibTorch DYLD issues** → Use `DYLD_LIBRARY_PATH` not `LD_LIBRARY_PATH`
+
+#### Cross-Compilation Troubleshooting
+
+##### ARM64 Cross-Compilation Issues
+```bash
+# Install missing targets
+rustup target add aarch64-unknown-linux-gnu
+rustup target add aarch64-apple-darwin
+
+# Linux: Install cross-compilation tools
+sudo apt install gcc-aarch64-linux-gnu
+
+# Check target installation
+rustup target list --installed
+```
+
+**Common Cross-Compilation Errors**:
+- ✅ **"target not found"** → Install with `rustup target add`
+- ✅ **"linker not found"** → Install platform-specific cross-tools
+- ✅ **"feature not supported"** → Some features may not work on all targets
+
+#### Local Testing (Platform-Specific)
+
+##### Linux/WSL2 Local Testing
+```bash
+# Run the same checks as Linux CI
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test -p train-station --lib
+cargo build --all-targets --release
+cargo doc --no-deps --document-private-items
+
+# Test cross-compilation
+rustup target add aarch64-unknown-linux-gnu
+cargo check --target aarch64-unknown-linux-gnu --lib -p train-station
+
+# Test LibTorch validation (if available)
+export LD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$LD_LIBRARY_PATH"
+cargo test -p libtorch-validation
+```
+
+##### Windows (Git Bash) Local Testing
+```bash
+# Run the same checks as Windows CI
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test -p train-station --lib
+cargo build --all-targets --release
+cargo doc --no-deps --document-private-items
+
+# Test cross-compilation
+rustup target add aarch64-apple-darwin
+cargo check --target aarch64-apple-darwin --lib -p train-station
+
+# Note: LibTorch validation typically not available on Windows
+```
+
+##### macOS Local Testing
+```bash
+# Run the same checks as macOS CI
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test -p train-station --lib
+cargo build --all-targets --release
+cargo doc --no-deps --document-private-items
+
+# Test cross-compilation (native ARM64 if on Apple Silicon)
+rustup target add aarch64-apple-darwin
+cargo check --target aarch64-apple-darwin --lib -p train-station
+
+# Test LibTorch validation (if available)
+export DYLD_LIBRARY_PATH="./libtorch-validation/libtorch/lib:$DYLD_LIBRARY_PATH"
+cargo test -p libtorch-validation
+```
+
+#### CI Badge Monitoring
+
+Monitor platform-specific CI status via README badges:
+- **Linux**: [![Linux](https://github.com/ewhinery8/train-station/actions/workflows/ci-linux.yml/badge.svg)]
+- **Windows**: [![Windows](https://github.com/ewhinery8/train-station/actions/workflows/ci-windows.yml/badge.svg)]  
+- **macOS**: [![macOS](https://github.com/ewhinery8/train-station/actions/workflows/ci-macos.yml/badge.svg)]
+- **Cross-Compile**: [![Cross-Compile](https://github.com/ewhinery8/train-station/actions/workflows/cross-compile.yml/badge.svg)]
+
+#### Getting Help with Platform Issues
+
+1. **Check platform-specific CI logs** - Click the relevant badge above
+2. **Compare with working platforms** - See which platforms pass/fail
+3. **Test locally** - Use platform-specific local testing commands above
+4. **Check tool availability** - Verify required tools are installed
+5. **Use recommended setup** - Follow platform-specific setup instructions
 
 ## License
 
