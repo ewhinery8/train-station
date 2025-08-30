@@ -85,8 +85,6 @@ use std::io::Cursor;
 /// - I/O errors during writing
 /// - Invalid field data that cannot be serialized
 /// - Memory allocation failures for large data structures
-///
-
 pub fn to_binary_internal(serializer: StructSerializer) -> SerializationResult<Vec<u8>> {
     let fields = serializer.fields; // Move fields out first
     serialize_with_header(
@@ -288,8 +286,6 @@ fn write_field_value_binary_static(
 /// - Malformed field data that cannot be deserialized
 /// - Memory allocation failures for large data structures
 /// - Unexpected end of data during deserialization
-///
-
 pub fn from_binary_internal(data: &[u8]) -> SerializationResult<StructDeserializer> {
     deserialize_with_header(data, ObjectType::Tensor, |reader| {
         // Read number of fields

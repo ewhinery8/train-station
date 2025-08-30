@@ -12,6 +12,7 @@ impl CudaStream {
     /// # Returns
     ///
     /// CUDA stream or None if creation failed
+    #[allow(dead_code)]
     pub fn new() -> Option<Self> {
         let stream_ptr = create_cuda_stream();
 
@@ -33,6 +34,7 @@ impl CudaStream {
     }
 
     /// Synchronize stream (wait for all operations to complete)
+    #[allow(dead_code)]
     pub fn synchronize(&self) -> bool {
         #[cfg(feature = "cuda")]
         {

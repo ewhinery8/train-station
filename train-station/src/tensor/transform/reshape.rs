@@ -54,7 +54,7 @@ impl Tensor {
     /// # Arguments
     ///
     /// * `new_shape` - Target shape for the tensor. Use -1 for one dimension
-    ///                 to have it automatically inferred from the total size.
+    ///   to have it automatically inferred from the total size.
     ///
     /// # Returns
     ///

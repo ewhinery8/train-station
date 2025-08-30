@@ -5,9 +5,11 @@
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// Global current CUDA device (default: -1 = no device set)
+#[allow(dead_code)]
 static CURRENT_CUDA_DEVICE: AtomicI32 = AtomicI32::new(-1);
 
 /// CUDA context for managing device state
+#[allow(dead_code)]
 pub struct CudaContext {
     device_id: i32,
     previous_device: i32,
@@ -23,6 +25,7 @@ impl CudaContext {
     /// # Returns
     ///
     /// CUDA context that will restore previous device when dropped
+    #[allow(dead_code)]
     pub fn new(device_id: i32) -> Option<Self> {
         let previous_device = get_current_cuda_device();
 
@@ -37,6 +40,7 @@ impl CudaContext {
     }
 
     /// Get the device ID for this context
+    #[allow(dead_code)]
     pub fn device_id(&self) -> i32 {
         self.device_id
     }
@@ -60,6 +64,7 @@ impl Drop for CudaContext {
 /// # Returns
 ///
 /// `true` if device was set successfully, `false` otherwise
+#[allow(dead_code)]
 pub fn set_cuda_device(device_id: i32) -> bool {
     #[cfg(feature = "cuda")]
     {
@@ -85,6 +90,7 @@ pub fn set_cuda_device(device_id: i32) -> bool {
 /// # Returns
 ///
 /// Current CUDA device ID, or -1 if no device is set
+#[allow(dead_code)]
 pub fn get_current_cuda_device() -> i32 {
     #[cfg(feature = "cuda")]
     {
@@ -102,6 +108,7 @@ pub fn get_current_cuda_device() -> i32 {
 /// # Returns
 ///
 /// Number of CUDA devices, or 0 if CUDA is not available
+#[allow(dead_code)]
 pub fn get_cuda_device_count() -> i32 {
     #[cfg(feature = "cuda")]
     {
@@ -124,6 +131,7 @@ pub fn get_cuda_device_count() -> i32 {
 /// # Returns
 ///
 /// Result of the closure, or None if device context creation failed
+#[allow(dead_code)]
 pub fn with_cuda_device<F, R>(device_id: i32, f: F) -> Option<R>
 where
     F: FnOnce() -> R,
@@ -161,7 +169,7 @@ mod tests {
         let device_count = get_cuda_device_count();
 
         if device_count > 0 {
-            let result = with_cuda_device(0, || get_current_cuda_device());
+            let result = with_cuda_device(0, get_current_cuda_device);
 
             if let Some(device_id) = result {
                 assert_eq!(device_id, 0);

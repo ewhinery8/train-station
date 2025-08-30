@@ -776,7 +776,7 @@ impl Tensor {
     /// assert!(result.requires_grad());
     /// assert_eq!(result.data(), &[2.0, 4.0]);
     /// ```
-    pub fn iter(&self) -> TensorElementIterator {
+    pub fn iter(&self) -> TensorElementIterator<'_> {
         TensorElementIterator::new(self)
     }
 
@@ -854,7 +854,7 @@ impl Tensor {
     /// let partial: Tensor = tensor.iter_range(1, 10).collect();
     /// assert_eq!(partial.data(), &[2.0, 3.0]);
     /// ```
-    pub fn iter_range(&self, start: usize, end: usize) -> TensorElementIterator {
+    pub fn iter_range(&self, start: usize, end: usize) -> TensorElementIterator<'_> {
         TensorElementIterator::with_range(self, start, end)
     }
 }

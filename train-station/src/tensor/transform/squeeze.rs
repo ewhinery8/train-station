@@ -64,8 +64,8 @@ impl Tensor {
     /// # Arguments
     ///
     /// * `dim` - Optional specific dimension to squeeze. If `None`, all size-1
-    ///           dimensions are removed. If `Some(d)`, only dimension `d` is
-    ///           removed if it has size 1.
+    ///   dimensions are removed. If `Some(d)`, only dimension `d` is
+    ///   removed if it has size 1.
     ///
     /// # Returns
     ///

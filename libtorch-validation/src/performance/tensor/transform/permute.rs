@@ -14,9 +14,7 @@ fn create_data_with_pattern(shape: &[usize], pattern: TestPattern) -> Vec<f32> {
     let mut data = vec![0.0f32; size];
     match pattern {
         TestPattern::Ones => {
-            for v in &mut data {
-                *v = 1.0;
-            }
+            data.fill(1.0);
         }
         TestPattern::Sequential => {
             for (i, v) in data.iter_mut().enumerate() {
