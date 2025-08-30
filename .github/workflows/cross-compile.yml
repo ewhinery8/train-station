@@ -298,15 +298,21 @@ jobs:
           
           # Check that train-station has no dependencies
           echo "Checking train-station dependencies..."
-          TREE_OUTPUT=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1)
-          DEPS=$(echo "$TREE_OUTPUT" | grep -v "train-station" | wc -l | tr -d ' ')
           
-          if [ "$DEPS" -eq 0 ]; then
+          # Use a simpler approach: check if cargo tree shows only one line (the main crate)
+          TREE_LINES=$(cargo tree -p train-station --target ${{ matrix.target }} --depth 1 | wc -l | tr -d ' ')
+          echo "Total lines in cargo tree output: $TREE_LINES"
+          
+          # Show the actual output for debugging
+          echo "Cargo tree output:"
+          cargo tree -p train-station --target ${{ matrix.target }} --depth 1
+          
+          # For zero dependencies, we should have exactly 1 line (just the main crate)
+          if [ "$TREE_LINES" -eq 1 ]; then
             echo "Zero-dependency principle maintained"
           else
             echo "Zero-dependency principle violated"
-            echo "Dependencies found:"
-            echo "$TREE_OUTPUT"
+            echo "Expected 1 line (main crate only), got $TREE_LINES lines"
             exit 1
           fi
           
