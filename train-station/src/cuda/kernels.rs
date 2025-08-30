@@ -25,6 +25,7 @@ use super::stream::CudaStream;
 /// # Returns
 ///
 /// `true` if kernel launch was successful, `false` otherwise
+#[allow(dead_code)]
 pub unsafe fn launch_add_kernel(
     a: *const f32,
     b: *const f32,
@@ -67,6 +68,7 @@ pub unsafe fn launch_add_kernel(
 /// # Returns
 ///
 /// `true` if kernel launch was successful, `false` otherwise  
+#[allow(dead_code)]
 pub unsafe fn launch_sub_kernel(
     a: *const f32,
     b: *const f32,
@@ -109,6 +111,7 @@ pub unsafe fn launch_sub_kernel(
 /// # Returns
 ///
 /// `true` if kernel launch was successful, `false` otherwise
+#[allow(dead_code)]
 pub unsafe fn launch_mul_kernel(
     a: *const f32,
     b: *const f32,
@@ -153,6 +156,7 @@ pub unsafe fn launch_mul_kernel(
 /// # Returns
 ///
 /// `true` if kernel launch was successful, `false` otherwise
+#[allow(dead_code)]
 pub unsafe fn launch_matmul_kernel(
     a: *const f32,
     b: *const f32,
@@ -180,6 +184,7 @@ pub unsafe fn launch_matmul_kernel(
 ///
 /// This trait provides a high-level interface for launching CUDA kernels
 /// with proper error handling and stream management.
+#[allow(dead_code)]
 pub trait CudaKernelDispatcher {
     /// Launch element-wise addition on GPU
     fn cuda_add(&self, other: &Self, stream: Option<&CudaStream>) -> Option<Self>

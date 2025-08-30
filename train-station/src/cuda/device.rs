@@ -1,18 +1,20 @@
 /// CUDA device information and properties
-
 /// CUDA device representation
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct CudaDevice {
     pub device_id: i32,
 }
 
 impl CudaDevice {
     /// Create a new CUDA device reference
+    #[allow(dead_code)]
     pub fn new(device_id: i32) -> Self {
         CudaDevice { device_id }
     }
 
     /// Get device properties
+    #[allow(dead_code)]
     pub fn properties(&self) -> Option<CudaDeviceProperties> {
         #[cfg(feature = "cuda")]
         {
@@ -30,6 +32,7 @@ impl CudaDevice {
 
 /// CUDA device properties
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CudaDeviceProperties {
     pub name: String,
     pub major: i32,

@@ -1,27 +1,27 @@
-/// CUDA FFI module for GPU acceleration
-///
-/// This module provides the foundation for CUDA support through FFI bindings.
-/// It follows the same isolation principles as the LibTorch FFI - CUDA operations
-/// are accessed only through validated FFI calls, never exposed in the public API.
-///
-/// # Design Philosophy
-///
-/// - CUDA support is completely optional (enabled via "cuda" feature flag)
-/// - All GPU operations go through validated FFI calls
-/// - Thread-safe device management through CUDA Runtime API
-/// - Memory management handled through CUDA Memory API
-/// - Kernel execution coordinated through CUDA streams
-/// - Error handling through CUDA error codes
-///
-/// # Safety
-///
-/// CUDA operations involve:
-/// - Raw device pointers and memory management
-/// - Asynchronous kernel execution
-/// - Multi-GPU context switching
-/// - Stream synchronization
-///
-/// All CUDA operations are wrapped in safe FFI calls with proper error handling.
+//! CUDA FFI module for GPU acceleration
+//!
+//! This module provides the foundation for CUDA support through FFI bindings.
+//! It follows the same isolation principles as the LibTorch FFI - CUDA operations
+//! are accessed only through validated FFI calls, never exposed in the public API.
+//!
+//! # Design Philosophy
+//!
+//! - CUDA support is completely optional (enabled via "cuda" feature flag)
+//! - All GPU operations go through validated FFI calls
+//! - Thread-safe device management through CUDA Runtime API
+//! - Memory management handled through CUDA Memory API
+//! - Kernel execution coordinated through CUDA streams
+//! - Error handling through CUDA error codes
+//!
+//! # Safety
+//!
+//! CUDA operations involve:
+//! - Raw device pointers and memory management
+//! - Asynchronous kernel execution
+//! - Multi-GPU context switching
+//! - Stream synchronization
+//!
+//! All CUDA operations are wrapped in safe FFI calls with proper error handling.
 
 #[cfg(feature = "cuda")]
 pub mod context;
@@ -40,15 +40,19 @@ pub mod stream;
 
 // Re-export main CUDA types when feature is enabled
 #[cfg(feature = "cuda")]
+#[allow(unused)]
 pub use context::CudaContext;
 
 #[cfg(feature = "cuda")]
+#[allow(unused)]
 pub use device::{CudaDevice, CudaDeviceProperties};
 
 #[cfg(feature = "cuda")]
+#[allow(unused)]
 pub use memory::CudaMemory;
 
 #[cfg(feature = "cuda")]
+#[allow(unused)]
 pub use stream::CudaStream;
 
 /// Check if CUDA is available at runtime
@@ -100,6 +104,7 @@ pub fn cuda_device_count() -> i32 {
 /// # Returns
 ///
 /// `true` if initialization successful, `false` otherwise or if CUDA feature disabled.
+#[allow(unused)]
 pub fn initialize_cuda() -> bool {
     #[cfg(feature = "cuda")]
     {
@@ -119,6 +124,7 @@ pub fn initialize_cuda() -> bool {
 ///
 /// This function cleans up CUDA resources and destroys contexts.
 /// Should be called when CUDA is no longer needed.
+#[allow(unused)]
 pub fn cleanup_cuda() {
     #[cfg(feature = "cuda")]
     {
@@ -163,6 +169,7 @@ extern "C" {
     fn cuda_memcpy(dst: *mut f32, src: *const f32, size: usize, kind: i32) -> bool;
 
     /// Create CUDA stream for asynchronous operations
+    #[allow(dead_code)]
     fn create_cuda_stream() -> *mut std::ffi::c_void;
 
     /// Destroy CUDA stream

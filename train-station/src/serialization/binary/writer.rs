@@ -113,8 +113,6 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
-    ///
-
     pub fn write_u32(&mut self, value: u32) -> SerializationResult<()> {
         self.writer.write_all(&value.to_le_bytes())?;
         self.bytes_written += 4;
@@ -281,8 +279,6 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
-    ///
-
     pub fn write_string(&mut self, value: &str) -> SerializationResult<()> {
         let bytes = value.as_bytes();
         self.write_u32(bytes.len() as u32)?;
@@ -383,8 +379,6 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
-    ///
-
     #[allow(unused)]
     pub fn write_option<T, F>(&mut self, option: &Option<T>, write_fn: F) -> SerializationResult<()>
     where

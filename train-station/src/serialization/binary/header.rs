@@ -36,8 +36,6 @@ use crate::serialization::core::{SerializationError, SerializationResult};
 /// - Checksum (4 bytes): Placeholder for future CRC32 validation
 /// - Data length (8 bytes): Size of the object data
 /// - Object type (4 bytes): Type identifier
-///
-
 pub fn write_header<W: Write>(
     writer: &mut BinaryWriter<W>,
     object_type: ObjectType,
@@ -71,8 +69,6 @@ pub fn write_header<W: Write>(
 /// - Magic number must match the expected value (0x54535F42)
 /// - Version must match the current format version
 /// - Object type must be a recognized type identifier
-///
-
 pub fn read_header<R: Read>(
     reader: &mut BinaryReader<R>,
 ) -> SerializationResult<(ObjectType, u64)> {
@@ -115,8 +111,6 @@ pub fn read_header<R: Read>(
 /// # Returns
 ///
 /// Binary data with header on success, or `SerializationError` on failure
-///
-
 pub fn serialize_with_header<T, F>(
     object_type: ObjectType,
     data: &T,
@@ -173,8 +167,6 @@ where
 /// - Version compatibility checking
 /// - Object type verification
 /// - Data length validation
-///
-
 pub fn deserialize_with_header<T, F>(
     data: &[u8],
     expected_type: ObjectType,

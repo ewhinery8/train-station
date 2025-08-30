@@ -4,6 +4,7 @@
 use std::ptr::NonNull;
 
 /// CUDA memory allocation wrapper
+#[allow(dead_code)]
 pub struct CudaMemory {
     ptr: NonNull<f32>,
     size: usize,
@@ -19,6 +20,7 @@ impl CudaMemory {
     /// # Returns
     ///
     /// CUDA memory allocation or None if allocation failed
+    #[allow(dead_code)]
     pub fn new(size: usize) -> Option<Self> {
         let ptr = cuda_malloc(size);
 
@@ -36,16 +38,19 @@ impl CudaMemory {
     }
 
     /// Get raw device pointer
+    #[allow(dead_code)]
     pub fn as_ptr(&self) -> *const f32 {
         self.ptr.as_ptr()
     }
 
     /// Get mutable raw device pointer
+    #[allow(dead_code)]
     pub fn as_mut_ptr(&mut self) -> *mut f32 {
         self.ptr.as_ptr()
     }
 
     /// Get size in number of elements
+    #[allow(dead_code)]
     pub fn size(&self) -> usize {
         self.size
     }
@@ -59,6 +64,7 @@ impl CudaMemory {
     /// # Returns
     ///
     /// `true` if copy was successful, `false` otherwise
+    #[allow(dead_code)]
     pub fn copy_from_host(&mut self, host_data: &[f32]) -> bool {
         assert!(
             host_data.len() <= self.size,
@@ -84,6 +90,7 @@ impl CudaMemory {
     /// # Returns
     ///
     /// `true` if copy was successful, `false` otherwise
+    #[allow(dead_code)]
     pub fn copy_to_host(&self, host_data: &mut [f32]) -> bool {
         assert!(host_data.len() <= self.size, "Host buffer too small");
 
@@ -118,6 +125,7 @@ unsafe impl Sync for CudaMemory {}
 /// # Returns
 ///
 /// Raw device pointer or null if allocation failed
+#[allow(dead_code)]
 pub fn cuda_malloc(size: usize) -> *mut f32 {
     #[cfg(feature = "cuda")]
     {
@@ -141,6 +149,7 @@ pub fn cuda_malloc(size: usize) -> *mut f32 {
 ///
 /// This function is unsafe because it performs a raw pointer operation.
 /// The caller must ensure that the ptr is not null.
+#[allow(dead_code)]
 pub unsafe fn cuda_free(ptr: *mut f32) {
     #[cfg(feature = "cuda")]
     {
@@ -173,6 +182,7 @@ pub unsafe fn cuda_free(ptr: *mut f32) {
 /// The caller must also ensure that the kind is valid.
 /// The caller must also ensure that the dst and src are not the same pointer.
 /// The caller must also ensure that the dst and src are not null.
+#[allow(dead_code)]
 pub unsafe fn cuda_memcpy(dst: *mut f32, src: *const f32, size: usize, kind: i32) -> bool {
     #[cfg(feature = "cuda")]
     {

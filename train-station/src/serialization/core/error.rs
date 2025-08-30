@@ -49,8 +49,6 @@ use std::io;
 /// This type alias provides a convenient way to express the result of any
 /// serialization or deserialization operation. It uses the standard `Result`
 /// type with `SerializationError` as the error variant.
-///
-
 pub type SerializationResult<T> = Result<T, SerializationError>;
 
 /// Main error type for serialization operations
@@ -380,8 +378,6 @@ impl From<io::Error> for SerializationError {
     /// This implementation allows I/O errors to be automatically converted
     /// to SerializationError instances, enabling seamless error propagation
     /// in serialization operations.
-    ///
-
     fn from(err: io::Error) -> Self {
         SerializationError::Io(err)
     }
@@ -393,8 +389,6 @@ impl From<crate::serialization::json::JsonError> for SerializationError {
     /// This implementation allows JSON-specific errors to be automatically
     /// converted to SerializationError instances, maintaining error context
     /// while providing a unified error interface.
-    ///
-
     fn from(err: crate::serialization::json::JsonError) -> Self {
         SerializationError::Json(err)
     }
@@ -406,8 +400,6 @@ impl From<crate::serialization::binary::BinaryError> for SerializationError {
     /// This implementation allows binary-specific errors to be automatically
     /// converted to SerializationError instances, maintaining error context
     /// while providing a unified error interface.
-    ///
-
     fn from(err: crate::serialization::binary::BinaryError) -> Self {
         SerializationError::Binary(err)
     }
@@ -419,8 +411,6 @@ impl From<String> for SerializationError {
     /// This implementation allows String values to be automatically converted
     /// to SerializationError::Custom instances, providing a convenient way
     /// to create custom error messages.
-    ///
-
     fn from(message: String) -> Self {
         SerializationError::Custom(message)
     }
@@ -432,8 +422,6 @@ impl From<&str> for SerializationError {
     /// This implementation allows string slices to be automatically converted
     /// to SerializationError::Custom instances, providing a convenient way
     /// to create custom error messages from string literals.
-    ///
-
     fn from(message: &str) -> Self {
         SerializationError::Custom(message.to_string())
     }
@@ -454,8 +442,6 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Json variant with the specified format error
-    ///
-
     pub fn json_format(message: String, line: Option<usize>, column: Option<usize>) -> Self {
         SerializationError::Json(crate::serialization::json::JsonError::Format {
             message,
@@ -477,8 +463,6 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified format error
-    ///
-
     pub fn binary_format(message: String, position: Option<usize>) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::Format {
             message,
@@ -499,8 +483,6 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified version mismatch error
-    ///
-
     pub fn binary_version_mismatch(expected: u32, found: u32) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::VersionMismatch {
             expected,
@@ -521,8 +503,6 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified invalid magic error
-    ///
-
     pub fn binary_invalid_magic(expected: u32, found: u32) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::InvalidMagic {
             expected,

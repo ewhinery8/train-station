@@ -26,8 +26,6 @@ use crate::serialization::core::{SerializationError, SerializationResult};
 /// - **Error Handling**: Comprehensive error propagation through `SerializationResult`
 /// - **Generic Design**: Works with any `Read` implementation
 ///
-
-///
 /// # Thread Safety
 ///
 /// This type is not thread-safe. Access from multiple threads requires external
@@ -49,8 +47,6 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// A new BinaryReader instance with byte counting initialized to zero
-    ///
-
     pub fn new(reader: R) -> Self {
         Self {
             reader,
@@ -67,8 +63,6 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The total number of bytes read
-    ///
-
     pub fn bytes_read(&self) -> usize {
         self.bytes_read
     }
@@ -258,8 +252,6 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// - String length must not exceed 1,000,000 bytes
     /// - String data must be valid UTF-8 encoding
-    ///
-
     pub fn read_string(&mut self) -> SerializationResult<String> {
         let length = self.read_u32()? as usize;
         if length > 1_000_000 {
@@ -366,8 +358,6 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The optional value on success, or `SerializationError` on failure
-    ///
-
     #[allow(unused)]
     pub fn read_option<T, F>(&mut self, read_fn: F) -> SerializationResult<Option<T>>
     where
@@ -399,8 +389,6 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// - Maximum collection length: 100,000,000 elements
     /// - Maximum memory size: 1,000,000,000 bytes (1GB)
-    ///
-
     fn validate_collection_size(
         &self,
         length: usize,
