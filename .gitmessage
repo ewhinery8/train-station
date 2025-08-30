@@ -1,0 +1,39 @@
+# <type>: <description>
+#
+# <body>
+#
+# <footer>
+#
+# Types:
+#   feat:     A new feature
+#   fix:      A bug fix
+#   docs:     Documentation only changes
+#   perf:     Performance improvements
+#   refactor: Code refactoring
+#   test:     Adding missing tests
+#   chore:    Changes to build process or auxiliary tools
+#
+# Branch naming should match commit type:
+#   feat/ → feat: commits
+#   fix/  → fix: commits
+#   perf/ → perf: commits
+#   docs/ → docs: commits
+#   refactor/ → refactor: commits
+#   test/ → test: commits
+#   chore/ → chore: commits
+#
+# Examples:
+#   feat: add matrix multiplication with SIMD optimization
+#   fix: resolve memory leak in tensor allocation
+#   perf: optimize broadcasting operations by 40%
+#   docs: update API documentation for autograd system
+#   refactor: simplify gradient computation logic
+#   test: add comprehensive validation for CUDA operations
+#   chore: bump version to 0.1.4
+#
+# Guidelines:
+#   - Use present tense ("add" not "added")
+#   - Don't capitalize first letter of description
+#   - No period at the end of description
+#   - Include performance impact in perf commits when measurable
+#   - Reference issues in footer if applicable

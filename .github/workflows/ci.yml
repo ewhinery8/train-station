@@ -1,0 +1,84 @@
+name: CI
+
+# Trigger Configuration: When to run this workflow
+on:
+  push:
+    branches: [ master ]     # Run on direct pushes to master branch
+  pull_request:
+    branches: [ master ]     # Run on PRs targeting master branch
+
+# Global Environment Variables: Applied to all jobs
+env:
+  CARGO_TERM_COLOR: always  # Force colored output in cargo commands for better readability
+
+# Job Definitions: Summary workflow that aggregates platform-specific CI results
+jobs:
+  # Summary job that waits for all platform-specific CIs to complete
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-22.04
+    
+    # This job depends on the platform-specific CI workflows
+    # Note: GitHub Actions doesn't support cross-workflow dependencies directly,
+    # so this serves as a lightweight validation that can be used as a branch protection rule
+    
+    # Security: Minimal permissions following principle of least privilege
+    permissions:
+      contents: read         # Only allow reading repository contents
+    
+    steps:
+      # Step 1: Get the source code
+      - name: Checkout repository
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332  # v4.1.7 pinned to SHA for security
+        
+      # Step 2: Install Rust toolchain for basic validation
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          echo "=== Installing Rust toolchain for CI summary ==="
+          
+          # Download and install rustup (official Rust installer)
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          
+          # Add cargo to PATH for this session
+          source ~/.cargo/env
+          
+          # Install required components
+          rustup component add rustfmt clippy
+          
+          # Verify installation
+          echo "Rust version: $(rustc --version)"
+          echo "Cargo version: $(cargo --version)"
+          
+      # Step 3: Basic validation (lightweight checks)
+      - name: Basic validation
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          
+          echo "=== Running basic CI summary validation ==="
+          
+          # Check that Cargo.toml is valid
+          echo "Validating Cargo.toml..."
+          cargo metadata --no-deps --format-version 1 > /dev/null
+          echo "Cargo.toml is valid"
+          
+          # Check that code compiles (quick check)
+          echo "Quick compilation check..."
+          cargo check --lib -p train-station
+          echo "Core library compiles"
+          
+          # Run a subset of tests for quick feedback
+          echo "Running core tests..."
+          cargo test -p train-station --lib --no-run
+          echo "Tests compile successfully"
+          
+          echo "=== CI summary validation complete ==="
+          echo ""
+          echo "Platform-specific CI results:"
+          echo "- Linux CI:   Check the Linux badge for detailed results"
+          echo "- Windows CI: Check the Windows badge for detailed results"
+          echo "- macOS CI:   Check the macOS badge for detailed results"
+          echo ""
+          echo "This summary workflow provides quick validation."
+          echo "For comprehensive testing, see the platform-specific workflows."
