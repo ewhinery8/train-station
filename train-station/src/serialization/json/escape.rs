@@ -17,6 +17,7 @@ use crate::serialization::core::{SerializationError, SerializationResult};
 /// # Returns
 ///
 /// The escaped string
+#[track_caller]
 pub fn escape_string(s: &str) -> String {
     let mut result = String::new();
     for ch in s.chars() {
@@ -50,6 +51,7 @@ pub fn escape_string(s: &str) -> String {
 ///
 /// The unescaped string on success, or `SerializationError` on failure
 #[allow(unused)]
+#[track_caller]
 pub fn unescape_string(s: &str) -> SerializationResult<String> {
     let mut result = String::new();
     let mut chars = s.chars().peekable();

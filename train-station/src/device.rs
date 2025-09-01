@@ -293,6 +293,7 @@ impl Device {
     /// assert_eq!(device.index(), 0);
     /// assert_eq!(device.device_type(), train_station::DeviceType::Cpu);
     /// ```
+    #[track_caller]
     pub fn cpu() -> Self {
         Device {
             device_type: DeviceType::Cpu,
@@ -341,6 +342,7 @@ impl Device {
     ///     }
     /// }
     /// ```
+    #[track_caller]
     pub fn cuda(index: usize) -> Self {
         #[cfg(feature = "cuda")]
         {
@@ -388,6 +390,7 @@ impl Device {
     /// let cpu = Device::cpu();
     /// assert_eq!(cpu.device_type(), DeviceType::Cpu);
     /// ```
+    #[track_caller]
     pub fn device_type(&self) -> DeviceType {
         self.device_type
     }
@@ -414,6 +417,7 @@ impl Device {
     ///     }
     /// }
     /// ```
+    #[track_caller]
     pub fn index(&self) -> usize {
         self.index
     }
@@ -433,6 +437,7 @@ impl Device {
     /// assert!(cpu.is_cpu());
     /// assert!(!cpu.is_cuda());
     /// ```
+    #[track_caller]
     pub fn is_cpu(&self) -> bool {
         self.device_type == DeviceType::Cpu
     }
@@ -452,6 +457,7 @@ impl Device {
     /// assert!(!cpu.is_cuda());
     /// assert!(cpu.is_cpu());
     /// ```
+    #[track_caller]
     pub fn is_cuda(&self) -> bool {
         self.device_type == DeviceType::Cuda
     }
@@ -670,6 +676,7 @@ impl Drop for DeviceContext {
 /// // The global default affects new tensor creation
 /// // (tensor creation would use this default device)
 /// ```
+#[track_caller]
 pub fn set_default_device(device: Device) {
     let device_id = device_to_id(device);
     GLOBAL_DEFAULT_DEVICE.store(device_id, Ordering::Relaxed);
@@ -696,6 +703,7 @@ pub fn set_default_device(device: Device) {
 /// set_default_device(Device::cpu());
 /// assert_eq!(get_default_device(), Device::cpu());
 /// ```
+#[track_caller]
 pub fn get_default_device() -> Device {
     let device_id = GLOBAL_DEFAULT_DEVICE.load(Ordering::Relaxed);
     id_to_device(device_id)
@@ -725,6 +733,7 @@ pub fn get_default_device() -> Device {
 ///
 /// assert_eq!(current_device(), initial_device);
 /// ```
+#[track_caller]
 pub fn current_device() -> Device {
     DEVICE_STACK.with(|stack| stack.borrow().last().copied().unwrap_or_else(Device::cpu))
 }
@@ -794,6 +803,7 @@ fn set_current_device(device: Device) {
 /// assert_eq!(result, 42);
 /// assert_eq!(current_device(), original_device);
 /// ```
+#[track_caller]
 pub fn with_device<F, R>(device: Device, f: F) -> R
 where
     F: FnOnce() -> R,
@@ -883,6 +893,7 @@ fn id_to_device(id: usize) -> Device {
 ///     // Fall back to CPU operations
 /// }
 /// ```
+#[track_caller]
 pub fn cuda_is_available() -> bool {
     #[cfg(feature = "cuda")]
     {
@@ -925,6 +936,7 @@ pub fn cuda_is_available() -> bool {
 /// }
 /// ```
 #[allow(unused)]
+#[track_caller]
 pub fn cuda_device_count() -> usize {
     #[cfg(feature = "cuda")]
     {

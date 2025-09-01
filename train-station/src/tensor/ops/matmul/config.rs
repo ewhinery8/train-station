@@ -119,6 +119,7 @@ impl MatmulConfig {
     /// - Small matrices (<64 elements): Use lightweight kernels with minimal overhead
     /// - Larger matrices: Use balanced approach with cache-aware blocking
     /// - Block sizes adapt to L1/L2 cache sizes for memory efficiency
+    #[track_caller]
     pub fn for_dimensions(m: usize, n: usize, k: usize) -> Self {
         // Analyze matrix characteristics for kernel selection
         let max_dim = m.max(n).max(k);

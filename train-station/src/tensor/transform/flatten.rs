@@ -121,6 +121,7 @@ impl Tensor {
     ///
     /// Where `-1` is a special value that automatically calculates the
     /// dimension size based on the total number of elements in the tensor.
+    #[track_caller]
     pub fn flatten(&self) -> Tensor {
         self.reshape(vec![-1])
     }

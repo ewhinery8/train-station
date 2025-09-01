@@ -96,6 +96,7 @@ impl Tensor {
     /// # Note
     /// Results are undefined for negative values (may produce NaN)
     #[inline]
+    #[track_caller]
     pub fn sqrt(&self) -> Tensor {
         let mut result = self.sqrt_optimized();
         if self.requires_grad() && is_grad_enabled() {

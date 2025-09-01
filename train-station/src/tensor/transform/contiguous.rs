@@ -120,6 +120,7 @@ impl Tensor {
     /// - **Already contiguous**: O(1) time complexity, returns a clone
     /// - **Non-contiguous**: O(n) time complexity with size-dependent optimizations
     /// - **Memory usage**: Creates a new tensor with the same size as the original
+    #[track_caller]
     pub fn contiguous(&self) -> Tensor {
         if self.is_contiguous() {
             let mut cloned = self.clone();

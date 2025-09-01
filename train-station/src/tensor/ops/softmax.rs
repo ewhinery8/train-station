@@ -107,6 +107,7 @@ impl Tensor {
     /// # Panics
     /// - Panics if `dim` is out of bounds for the tensor's rank
     /// - Panics if the dimension size is 0
+    #[track_caller]
     pub fn softmax(&self, dim: usize) -> Tensor {
         let rank = self.shape().rank();
         assert!(

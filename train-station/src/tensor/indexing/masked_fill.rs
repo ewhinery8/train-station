@@ -133,6 +133,7 @@ impl Tensor {
     /// - Gradients do not flow through masked positions (they are zeroed)
     /// - Gradients flow normally through unmasked positions
     /// - This behavior is useful for implementing operations like dropout
+    #[track_caller]
     pub fn masked_fill(&self, mask: &[bool], value: f32) -> Tensor {
         let numel = self.size();
         assert_eq!(

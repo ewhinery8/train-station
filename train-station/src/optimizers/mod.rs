@@ -303,6 +303,7 @@ pub trait Optimizer {
     /// // After forward pass and backward pass
     /// optimizer.step(&mut [&mut param]);
     /// ```
+    #[track_caller]
     fn step(&mut self, parameters: &mut [&mut crate::tensor::core::Tensor]);
 
     /// Clear accumulated gradients for all parameters
@@ -361,6 +362,7 @@ pub trait Optimizer {
     /// - **Gradient storage**: Clears gradients stored in tensor gradient fields
     /// - **Computation graph**: Maintains proper computation graph state
     /// - **Memory efficiency**: Efficiently manages gradient memory allocation
+    #[track_caller]
     fn zero_grad(&mut self, parameters: &mut [&mut crate::tensor::core::Tensor]);
 
     /// Get the current learning rate for monitoring and scheduling
@@ -433,6 +435,7 @@ pub trait Optimizer {
     /// This method is thread-safe and can be called concurrently with other read operations.
     /// It does not modify optimizer state and can be safely used for monitoring in
     /// multi-threaded training scenarios.
+    #[track_caller]
     fn learning_rate(&self) -> f32;
 
     /// Update the learning rate for dynamic scheduling and adjustment
@@ -549,5 +552,6 @@ pub trait Optimizer {
     /// - Accept positive learning rates for normal optimization
     /// - Handle zero learning rate (effectively disables updates)
     /// - Consider very large rates that may cause numerical instability
+    #[track_caller]
     fn set_learning_rate(&mut self, lr: f32);
 }

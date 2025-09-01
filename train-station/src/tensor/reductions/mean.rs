@@ -45,6 +45,7 @@ impl Tensor {
     /// When `requires_grad` is true, this operation is tracked for automatic
     /// differentiation. The gradient computation distributes the gradient equally
     /// across all input elements.
+    #[track_caller]
     pub fn mean(&self) -> Tensor {
         let mut out = Tensor::new(vec![1]);
         if self.size() == 0 {
@@ -183,6 +184,7 @@ impl Tensor {
     /// When `requires_grad` is true, this operation is tracked for automatic
     /// differentiation. The gradient computation preserves the original input
     /// shape and handles broadcasting correctly through the ReduceMeanDims gradient function.
+    #[track_caller]
     pub fn mean_dims(&self, dims: &[usize], keepdim: bool) -> Tensor {
         assert!(
             !dims.is_empty(),

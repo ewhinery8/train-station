@@ -959,6 +959,7 @@ impl Adam {
     /// - **Time Complexity**: O(1) - Direct access to internal state count
     /// - **Memory Usage**: No additional memory allocation
     /// - **Thread Safety**: Safe to call from multiple threads concurrently
+    #[track_caller]
     pub fn saved_parameter_count(&self) -> usize {
         self.states.len()
     }

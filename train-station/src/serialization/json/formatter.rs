@@ -90,6 +90,7 @@ use std::fmt::Write;
 /// - **Fast formatting**: Optimized for typical JSON document sizes
 /// - **Deterministic output**: Consistent formatting across multiple runs
 #[allow(unused)]
+#[track_caller]
 pub fn format_pretty(value: &JsonValue) -> SerializationResult<String> {
     let mut result = String::new();
     value
@@ -135,6 +136,7 @@ pub fn format_pretty(value: &JsonValue) -> SerializationResult<String> {
 /// - **Fast formatting**: Optimized for minimal processing overhead
 /// - **Compact output**: Minimal character count for storage and transmission
 #[allow(unused)]
+#[track_caller]
 pub fn format_compact(value: &JsonValue) -> SerializationResult<String> {
     let mut result = String::new();
     value

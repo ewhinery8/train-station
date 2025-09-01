@@ -76,6 +76,7 @@ impl Tensor {
     /// assert_eq!(b.get(&[1]), 2.0); // sqrt(4.0) = 2.0
     /// assert_eq!(b.get(&[2]), 3.0); // sqrt(9.0) = 3.0
     /// ```
+    #[track_caller]
     pub fn pow_scalar(&self, exponent: f32) -> Tensor {
         let mut out = self.pow_scalar_optimized(exponent);
 
@@ -505,6 +506,7 @@ impl Tensor {
     ///
     /// # Panics
     /// Panics if tensor shapes don't match
+    #[track_caller]
     pub fn pow_tensor(&self, exponent: &Tensor) -> Tensor {
         assert_eq!(
             self.shape().dims,

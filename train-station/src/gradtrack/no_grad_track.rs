@@ -93,6 +93,7 @@ impl NoGradTrack {
     /// # Returns
     ///
     /// A new `NoGradTrack` that will restore gradient state when dropped
+    #[track_caller]
     pub fn new() -> Self {
         GRAD_ENABLED_STACK.with(|stack| {
             let mut stack = stack.borrow_mut();
@@ -152,6 +153,7 @@ impl Drop for NoGradTrack {
 ///
 /// assert!(is_grad_enabled()); // Restored after guard drops
 /// ```
+#[track_caller]
 pub fn is_grad_enabled() -> bool {
     GRAD_ENABLED_STACK.with(|stack| {
         let stack = stack.borrow();
@@ -185,6 +187,7 @@ pub fn is_grad_enabled() -> bool {
 /// set_grad_enabled(true);
 /// assert!(is_grad_enabled());
 /// ```
+#[track_caller]
 pub fn set_grad_enabled(enabled: bool) {
     GRAD_ENABLED_STACK.with(|stack| {
         let mut stack = stack.borrow_mut();
@@ -224,8 +227,9 @@ pub fn set_grad_enabled(enabled: bool) {
 /// });
 ///
 /// assert!(!result.requires_grad());
-/// assert!(is_grad_enabled()); // Restored after closure
+/// assert!(is_grad_enabled()); // Restored after guard drops
 /// ```
+#[track_caller]
 pub fn with_no_grad<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
@@ -244,6 +248,7 @@ where
 /// This function will disrupt any active `NoGradTrack` contexts and should
 /// only be used in test cleanup or exceptional circumstances.
 #[cfg(test)]
+#[track_caller]
 pub fn reset_grad_state() {
     GRAD_ENABLED_STACK.with(|stack| {
         *stack.borrow_mut() = vec![true];

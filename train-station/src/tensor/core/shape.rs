@@ -179,6 +179,7 @@ impl Shape {
     /// assert_eq!(shape.strides(), &[12, 4, 1]);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn new(dims: Vec<usize>) -> Self {
         let size = dims.iter().product();
         let strides = Self::compute_contiguous_strides(&dims);
@@ -227,6 +228,7 @@ impl Shape {
     /// assert_eq!(shape.strides(), &[6, 2]);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn with_strides(dims: Vec<usize>, strides: Vec<usize>) -> Self {
         assert_eq!(
             dims.len(),
@@ -282,6 +284,7 @@ impl Shape {
     /// assert!(!view_shape.is_contiguous());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn as_view(dims: Vec<usize>, strides: Vec<usize>) -> Self {
         assert_eq!(
             dims.len(),
@@ -345,6 +348,7 @@ impl Shape {
     /// assert_eq!(shape.rank(), 3);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn rank(&self) -> usize {
         self.dims.len()
     }
@@ -364,6 +368,7 @@ impl Shape {
     /// assert!(shape.is_contiguous());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn is_contiguous(&self) -> bool {
         matches!(self.layout, MemoryLayout::Contiguous)
     }
@@ -383,6 +388,7 @@ impl Shape {
     /// assert!(view_shape.is_view());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn is_view(&self) -> bool {
         matches!(self.layout, MemoryLayout::View)
     }
@@ -412,6 +418,7 @@ impl Shape {
     /// assert_eq!(shape.stride(2), 1);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn stride(&self, dim: usize) -> usize {
         self.strides[dim]
     }
@@ -431,6 +438,7 @@ impl Shape {
     /// assert_eq!(shape.strides(), &[12, 4, 1]);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn strides(&self) -> &[usize] {
         &self.strides
     }
@@ -446,6 +454,7 @@ impl Shape {
     /// This method returns the memory layout type which can be used for
     /// optimization decisions in tensor operations.
     #[inline]
+    #[track_caller]
     pub fn layout(&self) -> &MemoryLayout {
         &self.layout
     }
@@ -484,6 +493,7 @@ impl Shape {
     /// assert_eq!(offset, 12 + 8 + 3); // 1*12 + 2*4 + 3*1
     /// ```
     #[inline]
+    #[track_caller]
     pub fn offset(&self, indices: &[usize]) -> usize {
         assert_eq!(indices.len(), self.rank(), "Indices must match tensor rank");
         indices
@@ -531,6 +541,7 @@ impl Shape {
     /// let shape3 = Shape::new(vec![4]);
     /// assert!(shape1.is_broadcastable_with(&shape3));
     /// ```
+    #[track_caller]
     pub fn is_broadcastable_with(&self, other: &Shape) -> bool {
         let max_rank = self.rank().max(other.rank());
 

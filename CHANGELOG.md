@@ -28,6 +28,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - 
 
+## [0.1.6] - 2025-09-01
+
+### Added
+- No new features
+
+### Fixed
+- No bug fixes
+
+### Performance
+- No performance improvements
+
+### Documentation
+- No documentation changes
+
+### Maintenance
+- add track_caller to all public API fns for improved debugging
+
+### Other Changes
+- No other changes
+
 ## [0.1.5] - 2025-08-30
 
 ### Added

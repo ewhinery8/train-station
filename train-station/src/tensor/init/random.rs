@@ -228,6 +228,7 @@ impl Tensor {
     /// The Box-Muller transform ensures that the generated values follow a true
     /// normal distribution with mean=0 and standard deviation=1, making it suitable
     /// for machine learning applications requiring normally distributed random values.
+    #[track_caller]
     pub fn randn(shape_dims: Vec<usize>, seed: Option<u64>) -> Self {
         let mut tensor = Self::new(shape_dims);
         tensor.fill_randn(seed);
@@ -267,6 +268,7 @@ impl Tensor {
     /// The method automatically handles hardware capabilities and falls back
     /// to scalar operations when SIMD is not available, ensuring compatibility
     /// across different CPU architectures.
+    #[track_caller]
     pub fn fill_randn(&mut self, seed: Option<u64>) {
         if self.shape().size == 0 {
             return;

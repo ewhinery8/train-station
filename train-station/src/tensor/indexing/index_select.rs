@@ -125,6 +125,7 @@ impl Tensor {
     ///
     /// This function is thread-safe and can be called concurrently on different tensors.
     /// The operation does not modify the input tensor and creates a new output tensor.
+    #[track_caller]
     pub fn index_select(&self, dim: usize, indices: &[usize]) -> Tensor {
         let rank = self.shape().rank();
         assert!(

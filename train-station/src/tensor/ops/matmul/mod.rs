@@ -260,6 +260,7 @@ impl Tensor {
     /// The implementation uses `Tensor::new_uninitialized` for performance-critical allocations
     /// and handles memory initialization safely through the kernel system. All unsafe operations
     /// are validated through comprehensive FFI testing against LibTorch reference implementation.
+    #[track_caller]
     pub fn matmul(&self, other: &Tensor) -> Tensor {
         let self_shape = self.shape();
         let other_shape = other.shape();

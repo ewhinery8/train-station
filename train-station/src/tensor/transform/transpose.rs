@@ -153,6 +153,7 @@ impl Tensor {
     /// For contiguous tensors, transpose returns a view with modified strides,
     /// making the tensor non-contiguous. For non-contiguous tensors or complex
     /// cases, data is copied to ensure correct transposition.
+    #[track_caller]
     pub fn transpose(&self, dim0: usize, dim1: usize) -> Tensor {
         assert!(
             dim0 < self.shape().rank(),
@@ -280,6 +281,7 @@ impl Tensor {
     /// let transposed2 = tensor.transpose(rank - 2, rank - 1);
     /// // transposed1 and transposed2 are identical
     /// ```
+    #[track_caller]
     pub fn t(&self) -> Tensor {
         assert!(
             self.shape().rank() >= 2,

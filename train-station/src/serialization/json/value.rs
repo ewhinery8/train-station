@@ -164,6 +164,7 @@ impl JsonValue {
     /// - Optional fields that are not present
     /// - Explicit null values in JSON data
     /// - Uninitialized or empty values
+    #[track_caller]
     pub fn null() -> Self {
         JsonValue::Null
     }
@@ -188,6 +189,7 @@ impl JsonValue {
     /// - Configuration flags and settings
     /// - Logical true/false values
     /// - Feature enable/disable flags
+    #[track_caller]
     pub fn bool(value: bool) -> Self {
         JsonValue::Bool(value)
     }
@@ -213,6 +215,7 @@ impl JsonValue {
     /// - **Decimals**: Floating-point numbers (e.g., 3.14, -0.001)
     /// - **Scientific notation**: Large/small numbers (e.g., 1.23e+10, 1.23e-10)
     /// - **Full precision**: 64-bit floating-point precision
+    #[track_caller]
     pub fn number(value: f64) -> Self {
         JsonValue::Number(value)
     }
@@ -238,6 +241,7 @@ impl JsonValue {
     /// - **Escape sequences**: Proper handling of special characters
     /// - **Control characters**: Escaping of newlines, tabs, quotes, etc.
     /// - **Unicode**: Support for all Unicode code points
+    #[track_caller]
     pub fn string(value: String) -> Self {
         JsonValue::String(value)
     }
@@ -263,6 +267,7 @@ impl JsonValue {
     /// - **Heterogeneous types**: Mixed JSON value types in same array
     /// - **Dynamic sizing**: Variable number of elements
     /// - **Indexed access**: Efficient access by numeric index
+    #[track_caller]
     pub fn array(values: Vec<JsonValue>) -> Self {
         JsonValue::Array(values)
     }
@@ -288,6 +293,7 @@ impl JsonValue {
     /// - **Efficient lookup**: Fast access by string key
     /// - **Nested structures**: Support for complex data hierarchies
     /// - **Dynamic properties**: Variable number of key-value pairs
+    #[track_caller]
     pub fn object(pairs: HashMap<String, JsonValue>) -> Self {
         JsonValue::Object(pairs)
     }
@@ -313,6 +319,7 @@ impl JsonValue {
     /// - Converting HashMap iterators
     /// - Creating objects from filtered or transformed data
     /// - Dynamic object construction from various data sources
+    #[track_caller]
     pub fn object_from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = (String, JsonValue)>,
@@ -341,6 +348,7 @@ impl JsonValue {
     /// - Converting filtered or transformed data
     /// - Creating arrays from range iterators
     /// - Dynamic array construction from various data sources
+    #[track_caller]
     pub fn array_from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = JsonValue>,
@@ -364,6 +372,7 @@ impl JsonValue {
     /// - Check for optional fields that are not present
     /// - Handle explicit null values in JSON data
     /// - Validate that required fields are not null
+    #[track_caller]
     pub fn is_null(&self) -> bool {
         matches!(self, JsonValue::Null)
     }
@@ -384,6 +393,7 @@ impl JsonValue {
     /// - Validate boolean configuration flags
     /// - Ensure boolean values before boolean operations
     /// - Type-check JSON data before processing
+    #[track_caller]
     pub fn is_bool(&self) -> bool {
         matches!(self, JsonValue::Bool(_))
     }
@@ -404,6 +414,7 @@ impl JsonValue {
     /// - Validate numeric configuration values
     /// - Ensure numeric values before mathematical operations
     /// - Type-check JSON data before numeric processing
+    #[track_caller]
     pub fn is_number(&self) -> bool {
         matches!(self, JsonValue::Number(_))
     }
@@ -424,6 +435,7 @@ impl JsonValue {
     /// - Validate string configuration values
     /// - Ensure string values before string operations
     /// - Type-check JSON data before text processing
+    #[track_caller]
     pub fn is_string(&self) -> bool {
         matches!(self, JsonValue::String(_))
     }
@@ -444,6 +456,7 @@ impl JsonValue {
     /// - Validate array configuration values
     /// - Ensure array values before iteration or indexing
     /// - Type-check JSON data before collection processing
+    #[track_caller]
     pub fn is_array(&self) -> bool {
         matches!(self, JsonValue::Array(_))
     }
@@ -464,6 +477,7 @@ impl JsonValue {
     /// - Validate object configuration values
     /// - Ensure object values before key access
     /// - Type-check JSON data before object processing
+    #[track_caller]
     pub fn is_object(&self) -> bool {
         matches!(self, JsonValue::Object(_))
     }
@@ -485,6 +499,7 @@ impl JsonValue {
     /// - Handle optional string fields in JSON objects
     /// - Extract text data from JSON values
     /// - Avoid panics when accessing non-string values
+    #[track_caller]
     pub fn as_string(&self) -> Option<&str> {
         match self {
             JsonValue::String(s) => Some(s),
@@ -509,6 +524,7 @@ impl JsonValue {
     /// - Handle optional numeric fields in JSON objects
     /// - Extract numeric data from JSON values
     /// - Avoid panics when accessing non-numeric values
+    #[track_caller]
     pub fn as_number(&self) -> Option<f64> {
         match self {
             JsonValue::Number(n) => Some(*n),
@@ -533,6 +549,7 @@ impl JsonValue {
     /// - Handle optional boolean fields in JSON objects
     /// - Extract boolean data from JSON values
     /// - Avoid panics when accessing non-boolean values
+    #[track_caller]
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             JsonValue::Bool(b) => Some(*b),
@@ -557,6 +574,7 @@ impl JsonValue {
     /// - Handle optional array fields in JSON objects
     /// - Extract collection data from JSON values
     /// - Avoid panics when accessing non-array values
+    #[track_caller]
     pub fn as_array(&self) -> Option<&Vec<JsonValue>> {
         match self {
             JsonValue::Array(arr) => Some(arr),
@@ -581,6 +599,7 @@ impl JsonValue {
     /// - Handle optional object fields in JSON objects
     /// - Extract key-value data from JSON values
     /// - Avoid panics when accessing non-object values
+    #[track_caller]
     pub fn as_object(&self) -> Option<&HashMap<String, JsonValue>> {
         match self {
             JsonValue::Object(obj) => Some(obj),
@@ -610,6 +629,7 @@ impl JsonValue {
     /// - Handle optional fields in JSON objects
     /// - Extract nested values from JSON objects
     /// - Avoid panics when accessing non-object values or missing keys
+    #[track_caller]
     pub fn get(&self, key: &str) -> Option<&JsonValue> {
         match self {
             JsonValue::Object(obj) => obj.get(key),
@@ -639,6 +659,7 @@ impl JsonValue {
     /// - Handle optional array elements
     /// - Extract values from JSON arrays
     /// - Avoid panics when accessing non-array values or out-of-bounds indices
+    #[track_caller]
     pub fn get_index(&self, index: usize) -> Option<&JsonValue> {
         match self {
             JsonValue::Array(arr) => arr.get(index),
@@ -670,6 +691,7 @@ impl JsonValue {
     ///
     /// If formatting fails for any reason, the method returns "null" as a
     /// fallback to ensure the method never panics or returns invalid JSON.
+    #[track_caller]
     pub fn to_string_compact(&self) -> String {
         use super::formatter::format_compact;
         format_compact(self).unwrap_or_else(|_| "null".to_string())
@@ -699,6 +721,7 @@ impl JsonValue {
     ///
     /// If formatting fails for any reason, the method returns "null" as a
     /// fallback to ensure the method never panics or returns invalid JSON.
+    #[track_caller]
     pub fn to_string_pretty(&self) -> String {
         use super::formatter::format_pretty;
         format_pretty(self).unwrap_or_else(|_| "null".to_string())

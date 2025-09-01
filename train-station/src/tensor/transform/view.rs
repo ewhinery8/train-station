@@ -417,6 +417,7 @@ fn can_transpose_as_view(shape: &Shape, dim0: usize, dim1: usize) -> bool {
 /// - Proper lifetime management
 /// - Bounds checking and validation
 /// - Gradient tracking preservation
+#[track_caller]
 pub fn create_view(source: &Tensor, spec: ViewSpec) -> Tensor {
     // Validate the view specification
     assert!(

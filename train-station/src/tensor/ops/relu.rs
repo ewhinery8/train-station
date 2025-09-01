@@ -74,6 +74,7 @@ impl Tensor {
     /// assert_eq!(b.get(&[3]), 0.1); // max(0, 0.1) = 0.1
     /// assert_eq!(b.get(&[4]), 5.0); // max(0, 5.0) = 5.0
     /// ```
+    #[track_caller]
     pub fn relu(&self) -> Tensor {
         let mut out = self.relu_optimized();
 

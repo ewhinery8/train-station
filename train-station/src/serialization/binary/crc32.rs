@@ -59,6 +59,7 @@ impl Crc32 {
     /// # Returns
     ///
     /// A new CRC32 instance ready for checksum calculation
+    #[track_caller]
     pub fn new() -> Self {
         let mut table = [0u32; 256];
 
@@ -91,6 +92,7 @@ impl Crc32 {
     ///
     /// The 32-bit CRC32 checksum value
     #[allow(unused)]
+    #[track_caller]
     pub fn checksum(&self, data: &[u8]) -> u32 {
         let mut crc = 0xFFFFFFFF;
 

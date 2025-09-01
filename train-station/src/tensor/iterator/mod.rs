@@ -285,6 +285,7 @@ impl<'a> TensorElementIterator<'a> {
     /// The iterator provides zero-copy access to tensor elements through view
     /// tensors, enabling efficient element-wise operations while maintaining
     /// full compatibility with Rust's standard library iterator methods.
+    #[track_caller]
     pub fn new(tensor: &'a Tensor) -> Self {
         Self {
             source: tensor,
@@ -330,6 +331,7 @@ impl<'a> TensorElementIterator<'a> {
     /// The iterator provides zero-copy access to tensor elements through view
     /// tensors, enabling efficient element-wise operations while maintaining
     /// full compatibility with Rust's standard library iterator methods.
+    #[track_caller]
     pub fn with_range(tensor: &'a Tensor, start: usize, end: usize) -> Self {
         let end = end.min(tensor.size());
         let start = start.min(end);
@@ -776,6 +778,7 @@ impl Tensor {
     /// assert!(result.requires_grad());
     /// assert_eq!(result.data(), &[2.0, 4.0]);
     /// ```
+    #[track_caller]
     pub fn iter(&self) -> TensorElementIterator<'_> {
         TensorElementIterator::new(self)
     }
@@ -854,6 +857,7 @@ impl Tensor {
     /// let partial: Tensor = tensor.iter_range(1, 10).collect();
     /// assert_eq!(partial.data(), &[2.0, 3.0]);
     /// ```
+    #[track_caller]
     pub fn iter_range(&self, start: usize, end: usize) -> TensorElementIterator<'_> {
         TensorElementIterator::with_range(self, start, end)
     }

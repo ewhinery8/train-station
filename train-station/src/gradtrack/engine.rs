@@ -752,6 +752,7 @@ thread_local! {
 /// - **RefCell borrowing**: Safely borrows the gradient graph for read access
 /// - **Gradient cloning**: Creates owned copy of gradient tensor for return
 /// - **Option handling**: Naturally handles both present and absent gradients
+#[track_caller]
 pub fn get_accumulated_gradient(tensor_id: usize) -> Option<Tensor> {
     GRADTRACK_GRAPH.with(|graph| graph.borrow().get_gradient(tensor_id).cloned())
 }
@@ -809,6 +810,7 @@ pub fn get_accumulated_gradient(tensor_id: usize) -> Option<Tensor> {
 /// - **RefCell borrowing**: Safely borrows the gradient graph for mutable access
 /// - **Graph clearing**: Calls the GradGraph clear method to reset state
 /// - **Memory efficiency**: Maintains HashMap capacity to avoid reallocation
+#[track_caller]
 pub fn clear_gradients() {
     GRADTRACK_GRAPH.with(|graph| {
         graph.borrow_mut().clear();
@@ -959,6 +961,7 @@ impl GradEngine {
     /// - **Gradient consumption**: Prevents double-counting by taking gradients from storage
     /// - **Efficient accumulation**: Uses optimized tensor addition for gradient combination
     /// - **Memory management**: Proper cleanup and memory reuse throughout the process
+    #[track_caller]
     pub fn backward(tensor: &mut Tensor, grad_output: Option<Tensor>) {
         // Initialize gradient if not provided (assumes scalar output)
         let initial_grad = grad_output.unwrap_or_else(|| {
@@ -1107,6 +1110,7 @@ impl GradEngine {
     /// - **RefCell borrowing**: Safely borrows the gradient graph for mutable access
     /// - **Graph registration**: Calls the GradGraph register_operation method
     /// - **Memory efficiency**: Uses pre-allocated HashMap to minimize allocation overhead
+    #[track_caller]
     pub fn register_operation(output_id: usize, input_ids: Vec<usize>, grad_fn: GradFn) {
         GRADTRACK_GRAPH.with(|graph| {
             graph

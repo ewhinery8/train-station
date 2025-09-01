@@ -142,6 +142,7 @@ impl Tensor {
     /// # Panics
     /// Panics if any element is non-positive (x <= 0)
     #[inline]
+    #[track_caller]
     pub fn log(&self) -> Tensor {
         let mut result = self.log_optimized();
         if self.requires_grad() && is_grad_enabled() {

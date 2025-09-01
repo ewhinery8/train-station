@@ -181,6 +181,7 @@ impl Tensor {
     ///   an empty tensor to maintain mathematical consistency
     /// - **No size-1 dimensions**: Returns a tensor with the same shape as the input
     /// - **Mixed dimensions**: Only removes dimensions with size 1, preserving others
+    #[track_caller]
     pub fn squeeze(&self, dim: Option<usize>) -> Tensor {
         let mut new_dims = Vec::new();
 

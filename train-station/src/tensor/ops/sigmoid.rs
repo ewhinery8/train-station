@@ -87,6 +87,7 @@ impl Tensor {
     /// assert!(b.get(&[0]) < 1e-4); // sigmoid(-10.0) ≈ 0
     /// assert!(b.get(&[1]) > 0.9999); // sigmoid(10.0) ≈ 1
     /// ```
+    #[track_caller]
     pub fn sigmoid(&self) -> Tensor {
         let mut out = Tensor::new(self.shape().dims.clone());
         unsafe {

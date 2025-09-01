@@ -487,6 +487,7 @@ impl GradFn {
     ///
     /// This method is thread-safe and can be called concurrently across multiple threads.
     /// Each gradient computation is independent and uses thread-local storage.
+    #[track_caller]
     pub fn apply(&self, grad_output: &Tensor) -> Vec<Option<Tensor>> {
         match self {
             GradFn::Add {
@@ -811,6 +812,7 @@ impl GradFn {
     /// - **Constant time**: O(1) time complexity for name retrieval
     /// - **No allocation**: Returns static string slices
     /// - **Zero overhead**: Compile-time string resolution
+    #[track_caller]
     pub fn name(&self) -> &'static str {
         match self {
             GradFn::Add { .. } => "Add",

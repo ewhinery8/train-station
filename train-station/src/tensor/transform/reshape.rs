@@ -136,6 +136,7 @@ impl Tensor {
     /// let reshaped2 = tensor.reshape(vec![-1, 6]);  // Results in shape [2, 6]
     /// let reshaped3 = tensor.reshape(vec![-1]);     // Results in shape [12]
     /// ```
+    #[track_caller]
     pub fn reshape(&self, new_shape: Vec<i32>) -> Tensor {
         // Validate and process the new shape
         let processed_shape = self.process_reshape_dimensions(new_shape);

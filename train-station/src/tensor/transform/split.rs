@@ -156,6 +156,7 @@ impl Tensor {
     /// The first chunk maintains the same underlying data as a view when
     /// the base offset is zero. Subsequent chunks may require data copying
     /// to handle non-zero base offsets, ensuring proper memory layout.
+    #[track_caller]
     pub fn split(&self, split_size: usize, dim: usize) -> Vec<Tensor> {
         assert!(self.shape().rank() > 0, "split requires non-zero rank");
         assert!(
@@ -281,6 +282,7 @@ impl Tensor {
     /// to handle non-zero base offsets, ensuring proper memory layout.
     /// Zero-sized chunks are handled by creating empty tensors with
     /// appropriate shapes.
+    #[track_caller]
     pub fn split_with_sizes(&self, split_sizes: &[usize], dim: usize) -> Vec<Tensor> {
         assert!(self.shape().rank() > 0, "split requires non-zero rank");
         assert!(

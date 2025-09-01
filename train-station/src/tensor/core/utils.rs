@@ -118,6 +118,7 @@ impl Tensor {
     /// tensor.fill(0.0); // Initialize with zeros
     /// ```
     #[inline]
+    #[track_caller]
     pub fn new(shape_dims: Vec<usize>) -> Self {
         let shape = Shape::new(shape_dims);
         let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -198,6 +199,7 @@ impl Tensor {
     /// assert_eq!(shape.rank(), 3);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn shape(&self) -> &Shape {
         &self.shape
     }
@@ -231,6 +233,7 @@ impl Tensor {
     /// assert_eq!(empty.size(), 0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn size(&self) -> usize {
         self.shape.size
     }
@@ -260,6 +263,7 @@ impl Tensor {
     /// assert!(!tensor.device().is_cuda());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn device(&self) -> Device {
         self.device
     }
@@ -328,6 +332,7 @@ impl Tensor {
     /// assert_eq!(tensor.device(), Device::cpu());
     /// assert_eq!(tensor.size(), 6);
     /// ```
+    #[track_caller]
     pub fn new_on_device(shape_dims: Vec<usize>, device: Device) -> Self {
         // For now, only CPU is supported
         if !device.is_cpu() {
@@ -409,6 +414,7 @@ impl Tensor {
     /// let tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
     /// assert!(tensor.requires_grad());
     /// ```
+    #[track_caller]
     pub fn with_requires_grad(mut self) -> Self {
         self.requires_grad = true;
         self
@@ -443,6 +449,7 @@ impl Tensor {
     /// tensor.set_requires_grad(false);
     /// assert!(!tensor.requires_grad());
     /// ```
+    #[track_caller]
     pub fn set_requires_grad(&mut self, requires_grad: bool) {
         self.requires_grad = requires_grad;
         if !requires_grad {
@@ -468,6 +475,7 @@ impl Tensor {
     /// let grad_tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
     /// assert!(grad_tensor.requires_grad());
     /// ```
+    #[track_caller]
     pub fn requires_grad(&self) -> bool {
         self.requires_grad
     }
@@ -489,6 +497,7 @@ impl Tensor {
     /// let tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
     /// assert!(tensor.grad().is_none()); // No gradients computed yet
     /// ```
+    #[track_caller]
     pub fn grad(&self) -> Option<&Tensor> {
         // First check if we have a gradient stored directly
         if let Some(grad) = self.grad.as_ref() {
@@ -522,6 +531,7 @@ impl Tensor {
     /// let tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
     /// assert!(tensor.grad_by_value().is_none()); // No gradients computed yet
     /// ```
+    #[track_caller]
     pub fn grad_by_value(&self) -> Option<Tensor> {
         // First check if we have a gradient stored directly
         if let Some(grad) = self.grad.as_ref() {
@@ -551,6 +561,7 @@ impl Tensor {
     /// let tensor2 = Tensor::new(vec![2, 3]);
     /// assert_ne!(tensor1.id(), tensor2.id()); // Each tensor has unique ID
     /// ```
+    #[track_caller]
     pub fn id(&self) -> usize {
         self.id
     }
@@ -575,6 +586,7 @@ impl Tensor {
     /// assert!(!detached.requires_grad());
     /// assert_eq!(tensor.size(), detached.size());
     /// ```
+    #[track_caller]
     pub fn detach(&self) -> Self {
         let mut detached = Self::new(self.shape.dims.clone());
 
@@ -604,6 +616,7 @@ impl Tensor {
     /// tensor.detach_();
     /// assert!(!tensor.requires_grad());
     /// ```
+    #[track_caller]
     pub fn detach_(&mut self) {
         self.requires_grad = false;
         self.grad = None;
@@ -631,6 +644,7 @@ impl Tensor {
     /// result.backward(None);
     /// // Note: Gradient computation depends on the gradtrack system implementation
     /// ```
+    #[track_caller]
     pub fn backward(&mut self, grad_output: Option<Tensor>) {
         GradEngine::backward(self, grad_output);
     }
@@ -696,6 +710,7 @@ impl Tensor {
     ///
     /// This method is used by the gradtrack engine to access the gradient
     /// computation function during backward pass.
+    #[track_caller]
     pub fn grad_fn(&self) -> &GradFn {
         &self.grad_fn
     }
@@ -763,6 +778,7 @@ impl Tensor {
     /// This method is used internally by the gradtrack engine to set gradients
     /// during backward pass. It only sets the gradient if gradient tracking is
     /// enabled for this tensor.
+    #[track_caller]
     pub fn set_grad(&mut self, grad: Tensor) {
         if self.requires_grad {
             self.grad = Some(Arc::new(grad));
@@ -785,6 +801,7 @@ impl Tensor {
     /// tensor.zero_grad();
     /// assert!(tensor.grad().is_none());
     /// ```
+    #[track_caller]
     pub fn zero_grad(&mut self) {
         self.grad = None;
     }
@@ -887,6 +904,7 @@ impl Tensor {
     /// assert!(tensor.is_contiguous());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn is_contiguous(&self) -> bool {
         self.shape.is_contiguous()
     }
@@ -897,6 +915,7 @@ impl Tensor {
     ///
     /// `true` if this tensor is a view (non-contiguous reference)
     #[inline]
+    #[track_caller]
     pub fn is_view(&self) -> bool {
         self.shape.is_view()
     }
@@ -916,6 +935,7 @@ impl Tensor {
     /// assert_eq!(tensor.strides(), &[12, 4, 1]);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn strides(&self) -> &[usize] {
         self.shape.strides()
     }
@@ -934,6 +954,7 @@ impl Tensor {
     ///
     /// Panics if `dim` is out of bounds
     #[inline]
+    #[track_caller]
     pub fn stride(&self, dim: usize) -> usize {
         self.shape.stride(dim)
     }
@@ -944,6 +965,7 @@ impl Tensor {
     ///
     /// Reference to the memory layout information
     #[inline]
+    #[track_caller]
     pub fn layout(&self) -> &crate::tensor::MemoryLayout {
         self.shape.layout()
     }
@@ -968,6 +990,7 @@ impl Tensor {
     /// // offset = 1*12 + 2*4 + 3*1 = 23
     /// ```
     #[inline]
+    #[track_caller]
     pub fn memory_offset(&self, indices: &[usize]) -> usize {
         self.shape.offset(indices)
     }
@@ -997,6 +1020,7 @@ impl Tensor {
     /// let result = a.broadcast_with(&b);
     /// assert!(result.is_ok());
     /// ```
+    #[track_caller]
     pub fn broadcast_with(
         &self,
         other: &Tensor,
@@ -1013,6 +1037,7 @@ impl Tensor {
     ///
     /// `true` if the tensor data is aligned to 32-byte boundaries for AVX2
     #[inline]
+    #[track_caller]
     pub fn is_simd_aligned(&self) -> bool {
         (self.data.as_ptr() as usize) % 32 == 0
     }
@@ -1023,6 +1048,7 @@ impl Tensor {
     ///
     /// The memory alignment in bytes (typically 32 for SIMD optimization)
     #[inline]
+    #[track_caller]
     pub fn memory_alignment(&self) -> usize {
         // Our tensors are allocated with 32-byte alignment for AVX2
         32
@@ -1048,6 +1074,7 @@ impl Tensor {
     /// assert!(a.is_broadcastable_with(&b));
     /// ```
     #[inline]
+    #[track_caller]
     pub fn is_broadcastable_with(&self, other: &Tensor) -> bool {
         self.shape.is_broadcastable_with(&other.shape)
     }
@@ -1058,6 +1085,7 @@ impl Tensor {
     ///
     /// Total memory footprint in bytes
     #[inline]
+    #[track_caller]
     pub fn memory_footprint(&self) -> usize {
         self.shape.size * std::mem::size_of::<f32>()
     }
@@ -1085,6 +1113,7 @@ impl Tensor {
     /// let value = tensor.get(&[0, 1]);
     /// assert_eq!(value, 2.0);
     /// ```
+    #[track_caller]
     pub fn get(&self, indices: &[usize]) -> f32 {
         assert_eq!(
             indices.len(),
@@ -1126,6 +1155,7 @@ impl Tensor {
     /// tensor.set(&[0, 1], 42.0);
     /// assert_eq!(tensor.get(&[0, 1]), 42.0);
     /// ```
+    #[track_caller]
     pub fn set(&mut self, indices: &[usize], value: f32) {
         assert_eq!(
             indices.len(),
@@ -1178,6 +1208,7 @@ impl Tensor {
     /// assert_eq!(data.len(), tensor.size());
     /// ```
     #[inline]
+    #[track_caller]
     pub fn data(&self) -> &[f32] {
         if self.size() == 0 {
             return &[];
@@ -1216,6 +1247,7 @@ impl Tensor {
     /// assert_eq!(tensor.get(&[0, 1]), 2.0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn data_mut(&mut self) -> &mut [f32] {
         if self.size() == 0 {
             return &mut [];
@@ -1282,6 +1314,7 @@ impl Tensor {
     /// let y = x.view(vec![2, 2]);
     /// assert_eq!(y.shape().dims, vec![2, 2]);
     /// ```
+    #[track_caller]
     pub fn view(&self, new_shape: Vec<i32>) -> Tensor {
         // Use the views module implementation
         use crate::tensor::transform::view::TensorViewExt;
@@ -1310,6 +1343,7 @@ impl Tensor {
     /// let element = tensor.element_view(1);
     /// assert_eq!(element.value(), 2.0);
     /// ```
+    #[track_caller]
     pub fn element_view(&self, index: usize) -> Tensor {
         use crate::tensor::transform::view::TensorViewExt;
         TensorViewExt::element_view(self, index)
@@ -1338,6 +1372,7 @@ impl Tensor {
     /// let slice = tensor.slice_view(1, 2, 2); // [2.0, 4.0]
     /// assert_eq!(slice.data(), &[2.0, 4.0]);
     /// ```
+    #[track_caller]
     pub fn slice_view(&self, start: usize, step: usize, length: usize) -> Tensor {
         use crate::tensor::transform::view::TensorViewExt;
         TensorViewExt::slice_view(self, start, step, length)
@@ -1405,6 +1440,7 @@ impl Tensor {
     ///
     /// This method is used internally to manage memory lifecycle for tensor views.
     /// It helps determine whether a tensor shares memory with another tensor.
+    #[track_caller]
     pub fn allocation_owner(&self) -> Option<&Arc<Allocation>> {
         self.allocation_owner.as_ref()
     }
@@ -1447,6 +1483,7 @@ impl Tensor {
     /// }
     /// ```
     #[inline]
+    #[track_caller]
     pub fn new_uninitialized(shape_dims: Vec<usize>) -> Self {
         let shape = Shape::new(shape_dims);
         let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);

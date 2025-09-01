@@ -36,6 +36,7 @@ impl Tensor {
     /// When `requires_grad` is true, this operation is tracked for automatic
     /// differentiation. The gradient computation uses the saved input and output
     /// for efficient backward pass.
+    #[track_caller]
     pub fn min(&self) -> Tensor {
         let mut out = Tensor::new(vec![1]);
         if self.size() == 0 {
@@ -171,6 +172,7 @@ impl Tensor {
     /// When `requires_grad` is true, this operation is tracked for automatic
     /// differentiation. The gradient computation preserves the original input
     /// shape and handles broadcasting correctly.
+    #[track_caller]
     pub fn min_dims(&self, dims: &[usize], keepdim: bool) -> Tensor {
         assert!(!dims.is_empty(), "min_dims requires at least one dimension");
         let rank = self.shape().rank();

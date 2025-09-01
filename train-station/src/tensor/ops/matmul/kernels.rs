@@ -77,6 +77,7 @@ pub struct MatmulBuffers {
 }
 
 impl MatmulBuffers {
+    #[track_caller]
     pub fn new() -> Self {
         Self {
             packed_b: vec![0.0f32; 1024], // Pre-allocate reasonable buffer size
@@ -92,6 +93,7 @@ impl Default for MatmulBuffers {
 
 impl MatmulBuffers {
     #[allow(unused)]
+    #[track_caller]
     pub fn ensure_capacity(&mut self, required_size: usize) {
         if self.packed_b.len() < required_size {
             self.packed_b.resize(required_size, 0.0f32);

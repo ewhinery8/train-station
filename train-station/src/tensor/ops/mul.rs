@@ -91,6 +91,7 @@ impl Tensor {
     /// # Panics
     /// Panics if tensor shapes are not broadcast-compatible
     #[inline]
+    #[track_caller]
     pub fn mul_tensor(&self, other: &Tensor) -> Tensor {
         // Check if shapes are identical for fast path
         if self.shape().dims == other.shape().dims {
@@ -236,6 +237,7 @@ impl Tensor {
     /// assert_eq!(b.get(&[2]), -6.0); // 3.0 * -2.0
     /// ```
     #[inline]
+    #[track_caller]
     pub fn mul_scalar(&self, scalar: f32) -> Tensor {
         let mut result = self.mul_scalar_optimized(scalar);
 

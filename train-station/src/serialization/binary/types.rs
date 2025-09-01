@@ -68,6 +68,7 @@ impl ObjectType {
     ///
     /// The corresponding ObjectType on success, or `SerializationError` if the
     /// value is unknown
+    #[track_caller]
     pub fn from_u32(value: u32) -> SerializationResult<Self> {
         match value {
             0x1001 => Ok(ObjectType::Tensor),

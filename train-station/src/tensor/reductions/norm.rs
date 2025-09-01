@@ -77,6 +77,7 @@ impl Tensor {
     ///
     /// Uses optimized contiguous tensor path with 4x loop unrolling for better
     /// performance. Non-contiguous tensors use stride-aware iteration.
+    #[track_caller]
     pub fn norm(&self) -> Tensor {
         // Compute sqrt(sum(x^2))
         let mut sumsq = 0.0f32;
@@ -199,6 +200,7 @@ impl Tensor {
     ///
     /// Uses efficient coordinate-based iteration that works correctly with
     /// both contiguous and non-contiguous tensor layouts.
+    #[track_caller]
     pub fn norm_dims(&self, dims: &[usize], keepdim: bool) -> Tensor {
         assert!(
             !dims.is_empty(),
