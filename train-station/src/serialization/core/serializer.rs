@@ -108,6 +108,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Creates a new empty serializer ready for field registration.
+    #[track_caller]
     pub fn new() -> Self {
         Self { fields: Vec::new() }
     }
@@ -129,6 +130,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Creates a serializer with pre-allocated capacity for performance optimization.
+    #[track_caller]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             fields: Vec::with_capacity(capacity),
@@ -156,6 +158,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Adds a field with automatic type conversion and enables fluent method chaining.
+    #[track_caller]
     pub fn field<T>(mut self, name: &str, value: &T) -> Self
     where
         T: ToFieldValue,
@@ -180,6 +183,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Serializes all fields to human-readable JSON format with proper escaping.
+    #[track_caller]
     pub fn to_json(self) -> SerializationResult<String> {
         crate::serialization::json::to_json_internal(self)
     }
@@ -200,6 +204,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Serializes all fields to compact binary format for efficient storage.
+    #[track_caller]
     pub fn to_binary(self) -> SerializationResult<Vec<u8>> {
         crate::serialization::binary::to_binary_internal(self)
     }
@@ -224,6 +229,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Saves serialized data to a JSON file with proper file I/O handling.
+    #[track_caller]
     pub fn save_json<P: AsRef<Path>>(self, path: P) -> SerializationResult<()> {
         let json_string = self.to_json()?;
 
@@ -260,6 +266,7 @@ impl StructSerializer {
     /// # Examples
     ///
     /// Saves serialized data to a binary file with proper file I/O handling.
+    #[track_caller]
     pub fn save_binary<P: AsRef<Path>>(self, path: P) -> SerializationResult<()> {
         let binary_data = self.to_binary()?;
 

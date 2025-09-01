@@ -107,6 +107,7 @@ impl Tensor {
     /// let result = Tensor::cat(&[a, b], 0);
     /// assert!(result.requires_grad());
     /// ```
+    #[track_caller]
     pub fn cat(tensors: &[Tensor], dim: usize) -> Tensor {
         assert!(!tensors.is_empty(), "cat requires at least one tensor");
 

@@ -99,6 +99,7 @@ impl Tensor {
     /// performance. Non-contiguous tensors use stride-aware iteration.
     /// The algorithm performs two passes: first to compute the mean, then to
     /// compute the variance.
+    #[track_caller]
     pub fn std(&self) -> Tensor {
         let mut out = Tensor::new(vec![1]);
         if self.size() == 0 {
@@ -313,6 +314,7 @@ impl Tensor {
     /// Uses efficient coordinate-based iteration that works correctly with
     /// both contiguous and non-contiguous tensor layouts. The algorithm performs
     /// two passes: first to compute means, then to compute variances.
+    #[track_caller]
     pub fn std_dims(&self, dims: &[usize], keepdim: bool) -> Tensor {
         assert!(!dims.is_empty(), "std_dims requires at least one dimension");
         let rank = self.shape().rank();

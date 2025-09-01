@@ -70,6 +70,7 @@ impl Tensor {
     /// assert!((b.get(&[2]) - 2.71828).abs() < 1e-5); // e^1 ≈ 2.71828
     /// ```
     #[inline]
+    #[track_caller]
     pub fn exp(&self) -> Tensor {
         let mut result = self.exp_optimized();
         if self.requires_grad() && is_grad_enabled() {

@@ -193,6 +193,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Bool` variant containing the boolean value
+    #[track_caller]
     pub fn from_bool(value: bool) -> Self {
         FieldValue::Bool(value)
     }
@@ -206,6 +207,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::I8` variant containing the integer value
+    #[track_caller]
     pub fn from_i8(value: i8) -> Self {
         FieldValue::I8(value)
     }
@@ -219,6 +221,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::I16` variant containing the integer value
+    #[track_caller]
     pub fn from_i16(value: i16) -> Self {
         FieldValue::I16(value)
     }
@@ -232,6 +235,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::I32` variant containing the integer value
+    #[track_caller]
     pub fn from_i32(value: i32) -> Self {
         FieldValue::I32(value)
     }
@@ -245,6 +249,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::I64` variant containing the integer value
+    #[track_caller]
     pub fn from_i64(value: i64) -> Self {
         FieldValue::I64(value)
     }
@@ -258,6 +263,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::U8` variant containing the integer value
+    #[track_caller]
     pub fn from_u8(value: u8) -> Self {
         FieldValue::U8(value)
     }
@@ -271,6 +277,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::U16` variant containing the integer value
+    #[track_caller]
     pub fn from_u16(value: u16) -> Self {
         FieldValue::U16(value)
     }
@@ -284,6 +291,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::U32` variant containing the integer value
+    #[track_caller]
     pub fn from_u32(value: u32) -> Self {
         FieldValue::U32(value)
     }
@@ -297,6 +305,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::U64` variant containing the integer value
+    #[track_caller]
     pub fn from_u64(value: u64) -> Self {
         FieldValue::U64(value)
     }
@@ -310,6 +319,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Usize` variant containing the size value
+    #[track_caller]
     pub fn from_usize(value: usize) -> Self {
         FieldValue::Usize(value)
     }
@@ -323,6 +333,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::F32` variant containing the float value
+    #[track_caller]
     pub fn from_f32(value: f32) -> Self {
         FieldValue::F32(value)
     }
@@ -336,6 +347,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::F64` variant containing the float value
+    #[track_caller]
     pub fn from_f64(value: f64) -> Self {
         FieldValue::F64(value)
     }
@@ -349,6 +361,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::String` variant containing the string value
+    #[track_caller]
     pub fn from_string(value: String) -> Self {
         FieldValue::String(value)
     }
@@ -362,6 +375,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::String` variant containing the string value
+    #[track_caller]
     pub fn from_string_slice(value: &str) -> Self {
         FieldValue::String(value.to_string())
     }
@@ -375,6 +389,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Bytes` variant containing the byte array
+    #[track_caller]
     pub fn from_bytes(value: Vec<u8>) -> Self {
         FieldValue::Bytes(value)
     }
@@ -388,6 +403,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::JsonObject` variant containing the JSON string
+    #[track_caller]
     pub fn from_json_object(json: String) -> Self {
         FieldValue::JsonObject(json)
     }
@@ -401,6 +417,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::BinaryObject` variant containing the binary data
+    #[track_caller]
     pub fn from_binary_object(data: Vec<u8>) -> Self {
         FieldValue::BinaryObject(data)
     }
@@ -414,6 +431,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Array` variant containing the array of values
+    #[track_caller]
     pub fn from_array(values: Vec<FieldValue>) -> Self {
         FieldValue::Array(values)
     }
@@ -427,6 +445,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Optional` variant containing the optional value
+    #[track_caller]
     pub fn from_optional(value: Option<FieldValue>) -> Self {
         FieldValue::Optional(value.map(Box::new))
     }
@@ -440,6 +459,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Object` variant containing the key-value pairs
+    #[track_caller]
     pub fn from_object(value: HashMap<String, FieldValue>) -> Self {
         FieldValue::Object(value)
     }
@@ -454,6 +474,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Enum` variant containing the variant name and optional data
+    #[track_caller]
     pub fn from_enum(variant: String, data: Option<FieldValue>) -> Self {
         FieldValue::Enum {
             variant,
@@ -470,6 +491,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Enum` variant with no associated data
+    #[track_caller]
     pub fn from_enum_unit(variant: String) -> Self {
         FieldValue::Enum {
             variant,
@@ -487,6 +509,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Enum` variant with array data
+    #[track_caller]
     pub fn from_enum_tuple(variant: String, values: Vec<FieldValue>) -> Self {
         FieldValue::Enum {
             variant,
@@ -504,6 +527,7 @@ impl FieldValue {
     /// # Returns
     ///
     /// A `FieldValue::Enum` variant with object data
+    #[track_caller]
     pub fn from_enum_struct(variant: String, fields: HashMap<String, FieldValue>) -> Self {
         FieldValue::Enum {
             variant,
@@ -624,6 +648,7 @@ impl FieldValue {
     /// - **i8, i16, i32**: Automatic conversion (always safe)
     /// - **i64**: Direct extraction
     /// - **Other types**: Conversion not supported
+    #[track_caller]
     pub fn as_i64(&self) -> SerializationResult<i64> {
         match self {
             FieldValue::I8(value) => Ok(*value as i64),
@@ -646,6 +671,7 @@ impl FieldValue {
     ///
     /// `Ok(u8)` if the field value is an 8-bit unsigned integer
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a u8
+    #[track_caller]
     pub fn as_u8(&self) -> SerializationResult<u8> {
         match self {
             FieldValue::U8(value) => Ok(*value),
@@ -665,6 +691,7 @@ impl FieldValue {
     ///
     /// `Ok(u16)` if the field value is a 16-bit unsigned integer
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a u16
+    #[track_caller]
     pub fn as_u16(&self) -> SerializationResult<u16> {
         match self {
             FieldValue::U16(value) => Ok(*value),
@@ -702,6 +729,7 @@ impl FieldValue {
     /// - Negative values from signed types
     /// - Values exceeding u32::MAX from larger types
     /// - Incompatible types (floats, strings, etc.)
+    #[track_caller]
     pub fn as_u32(&self) -> SerializationResult<u32> {
         match self {
             FieldValue::U8(value) => Ok(*value as u32),
@@ -790,6 +818,7 @@ impl FieldValue {
     /// - **u64**: Direct extraction
     /// - **i8, i16, i32, i64**: Conversion only if value ≥ 0
     /// - **Other types**: Conversion not supported
+    #[track_caller]
     pub fn as_u64(&self) -> SerializationResult<u64> {
         match self {
             FieldValue::U64(value) => Ok(*value),
@@ -860,6 +889,7 @@ impl FieldValue {
     /// - **usize**: Direct extraction
     /// - **i8, i16, i32, i64**: Conversion only if value ≥ 0
     /// - **Other types**: Conversion not supported
+    #[track_caller]
     pub fn as_usize(&self) -> SerializationResult<usize> {
         match self {
             FieldValue::Usize(value) => Ok(*value),
@@ -930,6 +960,7 @@ impl FieldValue {
     /// - **f64**: Conversion with potential precision loss
     /// - **All integer types**: Automatic conversion (i8, i16, i32, i64, u8, u16, u32, u64, usize)
     /// - **Other types**: Conversion not supported
+    #[track_caller]
     pub fn as_f32(&self) -> SerializationResult<f32> {
         match self {
             FieldValue::F32(value) => Ok(*value),
@@ -966,6 +997,7 @@ impl FieldValue {
     /// - **f32**: Conversion without precision loss
     /// - **All integer types**: Automatic conversion (i8, i16, i32, i64, u8, u16, u32, u64, usize)
     /// - **Other types**: Conversion not supported
+    #[track_caller]
     pub fn as_f64(&self) -> SerializationResult<f64> {
         match self {
             FieldValue::F64(value) => Ok(*value),
@@ -995,6 +1027,7 @@ impl FieldValue {
     ///
     /// `Ok(&str)` if the field value is a string
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a string
+    #[track_caller]
     pub fn as_string(&self) -> SerializationResult<&str> {
         match self {
             FieldValue::String(value) => Ok(value),
@@ -1014,6 +1047,7 @@ impl FieldValue {
     ///
     /// `Ok(&[u8])` if the field value is a byte array
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a byte array
+    #[track_caller]
     pub fn as_bytes(&self) -> SerializationResult<&[u8]> {
         match self {
             FieldValue::Bytes(value) => Ok(value),
@@ -1055,6 +1089,7 @@ impl FieldValue {
     /// - Invalid hex characters in hex strings
     /// - Odd-length hex strings
     /// - Non-string/non-byte field values
+    #[track_caller]
     pub fn to_bytes(&self) -> SerializationResult<Vec<u8>> {
         match self {
             FieldValue::Bytes(value) => Ok(value.clone()),
@@ -1119,6 +1154,7 @@ impl FieldValue {
     ///
     /// `Ok(&str)` if the field value is a JSON object string
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a JSON object
+    #[track_caller]
     pub fn as_json_object(&self) -> SerializationResult<&str> {
         match self {
             FieldValue::JsonObject(value) => Ok(value),
@@ -1138,6 +1174,7 @@ impl FieldValue {
     ///
     /// `Ok(&[u8])` if the field value is binary object data
     /// `Err(SerializationError::ValidationFailed)` if the field value is not a binary object
+    #[track_caller]
     pub fn as_binary_object(&self) -> SerializationResult<&[u8]> {
         match self {
             FieldValue::BinaryObject(value) => Ok(value),
@@ -1157,6 +1194,7 @@ impl FieldValue {
     ///
     /// `Ok(&[FieldValue])` if the field value is an array
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an array
+    #[track_caller]
     pub fn as_array(&self) -> SerializationResult<&[FieldValue]> {
         match self {
             FieldValue::Array(value) => Ok(value),
@@ -1176,6 +1214,7 @@ impl FieldValue {
     ///
     /// `Ok(Option<&FieldValue>)` if the field value is an optional
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an optional
+    #[track_caller]
     pub fn as_optional(&self) -> SerializationResult<Option<&FieldValue>> {
         match self {
             FieldValue::Optional(value) => Ok(value.as_deref()),
@@ -1195,6 +1234,7 @@ impl FieldValue {
     ///
     /// `Ok(&HashMap<String, FieldValue>)` if the field value is an object
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an object
+    #[track_caller]
     pub fn as_object(&self) -> SerializationResult<&HashMap<String, FieldValue>> {
         match self {
             FieldValue::Object(value) => Ok(value),
@@ -1214,6 +1254,7 @@ impl FieldValue {
     ///
     /// `Ok((&str, Option<&FieldValue>))` containing the variant name and optional data
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an enum
+    #[track_caller]
     pub fn as_enum(&self) -> SerializationResult<(&str, Option<&FieldValue>)> {
         match self {
             FieldValue::Enum { variant, data } => Ok((variant, data.as_ref().map(|d| d.as_ref()))),
@@ -1233,6 +1274,7 @@ impl FieldValue {
     ///
     /// `Ok(&str)` containing the enum variant name
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an enum
+    #[track_caller]
     pub fn as_enum_variant(&self) -> SerializationResult<&str> {
         match self {
             FieldValue::Enum { variant, .. } => Ok(variant),
@@ -1252,6 +1294,7 @@ impl FieldValue {
     ///
     /// `Ok(Option<&FieldValue>)` containing the optional associated data
     /// `Err(SerializationError::ValidationFailed)` if the field value is not an enum
+    #[track_caller]
     pub fn as_enum_data(&self) -> SerializationResult<Option<&FieldValue>> {
         match self {
             FieldValue::Enum { data, .. } => Ok(data.as_ref().map(|d| d.as_ref())),
@@ -1280,6 +1323,7 @@ impl FieldValue {
     /// - **Object types**: `"json_object"`, `"binary_object"`
     /// - **Collection types**: `"array"`, `"optional"`, `"object"`
     /// - **Enum types**: `"enum"`
+    #[track_caller]
     pub fn type_name(&self) -> &'static str {
         match self {
             FieldValue::Bool(_) => "bool",

@@ -113,6 +113,7 @@ pub type BroadcastResult<T> = Result<T, BroadcastError>;
 /// - `[2, 1, 4]` + `[3, 1]` → `[2, 3, 4]`
 /// - `[1]` + `[2, 3]` → `[2, 3]` (scalar broadcasting)
 /// - `[2, 3, 4]` + `[4]` → `[2, 3, 4]` (different ranks)
+#[track_caller]
 pub fn compute_broadcast_shape(shape1: &Shape, shape2: &Shape) -> BroadcastResult<Shape> {
     let rank1 = shape1.rank();
     let rank2 = shape2.rank();
@@ -296,6 +297,7 @@ fn compute_broadcast_strides(original_shape: &Shape, target_shape: &Shape) -> Ve
 /// assert_eq!(a_broadcast.shape().dims, vec![2, 3]);
 /// assert_eq!(b_broadcast.shape().dims, vec![2, 3]);
 /// ```
+#[track_caller]
 pub fn broadcast_shapes(
     tensor1: &Tensor,
     tensor2: &Tensor,
@@ -540,6 +542,7 @@ unsafe fn broadcast_scalar_simd_avx2(dst: *mut f32, value: f32, size: usize) {
 /// - **Early Validation**: Useful for avoiding expensive operations
 /// - **Error Reporting**: Provides quick feedback for incompatible shapes
 #[allow(unused)]
+#[track_caller]
 pub fn shapes_are_broadcast_compatible(shape1: &Shape, shape2: &Shape) -> bool {
     shape1.is_broadcastable_with(shape2)
 }
@@ -588,6 +591,7 @@ pub mod optimized {
     /// - **Cache Friendly**: Linear memory access patterns
     /// - **Common Pattern**: Optimized for the most frequent broadcasting scenario
     #[allow(unused)]
+    #[track_caller]
     pub fn broadcast_scalar_tensor(
         scalar_tensor: &Tensor,
         target_tensor: &Tensor,
@@ -646,6 +650,7 @@ pub mod optimized {
     /// - **Cache Friendly**: Row-wise copying for optimal memory access
     /// - **Common Pattern**: Optimized for linear layer bias operations
     #[allow(unused)]
+    #[track_caller]
     pub fn broadcast_vector_matrix(
         vector: &Tensor,
         matrix: &Tensor,

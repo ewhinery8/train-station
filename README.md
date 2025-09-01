@@ -34,7 +34,7 @@
 
 Train Station is a from-scratch ML framework designed for lightweight production workflows (think embedded applications or edge deployments). Built with zero external dependencies and a focus on zero-cost abstractions, it provides PyTorch-like ergonomics while maintaining complete control over performance. Train Station aims to encourage first-principles thinking and ground-up research. It provides the tooling to construct industry standard architectures and layers as well as completely novel architectures and techniques.  
 
-Due to the zero dependency nature, building across various platforms and distrubution should be a breeze. The days of having to move around various dynamically linked objects or dealing with FFI boundary support and error handling are gone with this library.
+Due to the zero dependency nature, building across various platforms and distributions should be a breeze. The days of having to move around various dynamically linked objects or dealing with FFI boundary support and error handling are gone with this library.
 
 With this said, the project is in its infancy, and we plan on rapidly expanding operation support, functionality, and eventually adding CUDA support (also, please report any bugs discovered so that we can patch things up as quickly as possible). Feel free to help contribute as we expand functionality and support!
 
@@ -58,7 +58,7 @@ Simplicity, familiarity, performance, ease of use.
 
 ## Performance Results
 
-Base performance seems solid - with signifigant speedups compared to LibTorch (C++ PyTorch backend) on certain ops. With this said, it will be hard to match performance for all operations considering our zero-dependency design (talking BLAS, MKL which larger behemoth libraries leverage). Our aim is to out-perform the competition. As the project matures we will continue to persue increasing levels of performance. 
+Base performance seems solid - with signifigant speedups compared to LibTorch (C++ PyTorch backend) on certain ops. With this said, it will be hard to match performance for all operations considering our zero-dependency design (talking BLAS, MKL which larger behemoth libraries leverage). Our aim is to out-perform the competition. As the project matures we will continue to pursue increasing levels of performance. 
 
 ### Performance Benchmarks
 
@@ -264,7 +264,7 @@ Train Station is **fully tested and supported** across all major platforms with 
 **Quality Assurance**: Every release is validated across all supported platforms through our multi-platform CI/CD pipeline.
 
  <mark>**WARNING** - 
-**CUDA FEATURE UNSTABLE, ACTIVATION NOT RECCOMMENDED AT THIS TIME**<mark/>      
+**CUDA FEATURE UNSTABLE, ACTIVATION NOT RECOMMENDED AT THIS TIME**<mark/>      
 
 ### Basic Installation
 

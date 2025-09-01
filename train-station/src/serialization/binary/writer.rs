@@ -45,6 +45,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// A new BinaryWriter instance with byte counting initialized to zero
+    #[track_caller]
     pub fn new(writer: W) -> Self {
         Self {
             writer,
@@ -61,6 +62,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// The total number of bytes written
+    #[track_caller]
     pub fn bytes_written(&self) -> usize {
         self.bytes_written
     }
@@ -77,6 +79,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_u8(&mut self, value: u8) -> SerializationResult<()> {
         self.writer.write_all(&[value])?;
         self.bytes_written += 1;
@@ -95,6 +98,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_u16(&mut self, value: u16) -> SerializationResult<()> {
         self.writer.write_all(&value.to_le_bytes())?;
         self.bytes_written += 2;
@@ -113,6 +117,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_u32(&mut self, value: u32) -> SerializationResult<()> {
         self.writer.write_all(&value.to_le_bytes())?;
         self.bytes_written += 4;
@@ -131,6 +136,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_u64(&mut self, value: u64) -> SerializationResult<()> {
         self.writer.write_all(&value.to_le_bytes())?;
         self.bytes_written += 8;
@@ -149,6 +155,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_i8(&mut self, value: i8) -> SerializationResult<()> {
         self.write_u8(value as u8)
     }
@@ -165,6 +172,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_i16(&mut self, value: i16) -> SerializationResult<()> {
         self.write_u16(value as u16)
     }
@@ -181,6 +189,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_i32(&mut self, value: i32) -> SerializationResult<()> {
         self.write_u32(value as u32)
     }
@@ -197,6 +206,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_i64(&mut self, value: i64) -> SerializationResult<()> {
         self.write_u64(value as u64)
     }
@@ -213,6 +223,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_f32(&mut self, value: f32) -> SerializationResult<()> {
         self.write_u32(value.to_bits())
     }
@@ -229,6 +240,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_f64(&mut self, value: f64) -> SerializationResult<()> {
         self.write_u64(value.to_bits())
     }
@@ -246,6 +258,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_usize(&mut self, value: usize) -> SerializationResult<()> {
         self.write_u64(value as u64)
     }
@@ -262,6 +275,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_bool(&mut self, value: bool) -> SerializationResult<()> {
         self.write_u8(if value { 1 } else { 0 })
     }
@@ -279,6 +293,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_string(&mut self, value: &str) -> SerializationResult<()> {
         let bytes = value.as_bytes();
         self.write_u32(bytes.len() as u32)?;
@@ -300,6 +315,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_bytes(&mut self, bytes: &[u8]) -> SerializationResult<()> {
         self.writer.write_all(bytes)?;
         self.bytes_written += bytes.len();
@@ -318,6 +334,7 @@ impl<W: Write> BinaryWriter<W> {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn write_vec_u8(&mut self, vec: &[u8]) -> SerializationResult<()> {
         self.write_u64(vec.len() as u64)?;
         self.write_bytes(vec)
@@ -336,6 +353,7 @@ impl<W: Write> BinaryWriter<W> {
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn write_vec_usize(&mut self, vec: &[usize]) -> SerializationResult<()> {
         self.write_u64(vec.len() as u64)?;
         for &value in vec {
@@ -357,6 +375,7 @@ impl<W: Write> BinaryWriter<W> {
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn write_vec_f32(&mut self, vec: &[f32]) -> SerializationResult<()> {
         self.write_u64(vec.len() as u64)?;
         for &value in vec {
@@ -380,6 +399,7 @@ impl<W: Write> BinaryWriter<W> {
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn write_option<T, F>(&mut self, option: &Option<T>, write_fn: F) -> SerializationResult<()>
     where
         F: FnOnce(&mut Self, &T) -> SerializationResult<()>,
@@ -402,6 +422,7 @@ impl<W: Write> BinaryWriter<W> {
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn flush(&mut self) -> SerializationResult<()> {
         self.writer.flush()?;
         Ok(())

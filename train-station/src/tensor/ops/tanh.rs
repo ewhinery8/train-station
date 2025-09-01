@@ -85,6 +85,7 @@ impl Tensor {
     /// assert!((b.get(&[0]) - (-1.0)).abs() < 1e-6); // tanh(-10.0) ≈ -1
     /// assert!((b.get(&[1]) - 1.0).abs() < 1e-6); // tanh(10.0) ≈ 1
     /// ```
+    #[track_caller]
     pub fn tanh(&self) -> Tensor {
         let mut out = self.tanh_optimized();
 

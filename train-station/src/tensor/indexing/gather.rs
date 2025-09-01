@@ -102,6 +102,7 @@ impl Tensor {
     /// - The `index_shape` rank doesn't match the input tensor's rank
     /// - The `index_shape` dimensions don't match the input tensor (except along `dim`)
     /// - The `indices` length doesn't equal the product of `index_shape` dimensions
+    #[track_caller]
     pub fn gather(&self, dim: usize, indices: &[usize], index_shape: &[usize]) -> Tensor {
         let rank = self.shape().rank();
         assert!(

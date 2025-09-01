@@ -162,6 +162,7 @@ impl Tensor {
     /// and distributed back to the original input tensors. This is implemented
     /// using the same gradient function as concatenation, treating the stack
     /// operation as concatenation along a new axis.
+    #[track_caller]
     pub fn stack(tensors: &[Tensor], dim: usize) -> Tensor {
         assert!(!tensors.is_empty(), "stack requires at least one tensor");
 

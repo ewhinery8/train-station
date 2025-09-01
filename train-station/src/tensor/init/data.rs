@@ -224,6 +224,7 @@ impl Tensor {
     /// The memory copy operation uses `std::ptr::copy_nonoverlapping` for
     /// maximum performance and safety, ensuring no data corruption occurs
     /// during the copy process.
+    #[track_caller]
     pub fn from_slice(data: &[f32], shape_dims: Vec<usize>) -> Result<Self, String> {
         let shape = crate::tensor::Shape::new(shape_dims);
 

@@ -77,6 +77,7 @@ impl Tensor {
     /// assert_eq!(b.get(&[1]), 0.0); // max(0, 0) = 0
     /// assert_eq!(b.get(&[2]), 1.0); // max(0, 1) = 1
     /// ```
+    #[track_caller]
     pub fn leaky_relu(&self, negative_slope: f32) -> Tensor {
         let mut out = self.leaky_relu_optimized(negative_slope);
 

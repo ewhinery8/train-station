@@ -83,6 +83,7 @@ impl StructDeserializer {
     ///
     /// This constructor performs no validation or conversion, making it the fastest
     /// way to create a deserializer when you already have the field data.
+    #[track_caller]
     pub fn from_fields(fields: HashMap<String, FieldValue>) -> Self {
         Self { fields }
     }
@@ -114,6 +115,7 @@ impl StructDeserializer {
     ///
     /// The entire file is read into memory before parsing. For very large files,
     /// consider using streaming JSON parsing instead.
+    #[track_caller]
     pub fn load_json<P: AsRef<Path>>(path: P) -> SerializationResult<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
@@ -150,6 +152,7 @@ impl StructDeserializer {
     ///
     /// The entire file is read into memory before parsing. Binary format is
     /// typically more compact and faster to parse than JSON.
+    #[track_caller]
     pub fn load_binary<P: AsRef<Path>>(path: P) -> SerializationResult<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
@@ -185,6 +188,7 @@ impl StructDeserializer {
     ///
     /// Field extraction is O(1) average case due to HashMap lookup. The field
     /// is removed from the deserializer to prevent memory leaks.
+    #[track_caller]
     pub fn field<T: FromFieldValue>(&mut self, name: &str) -> SerializationResult<T> {
         let field_value =
             self.fields
@@ -224,6 +228,7 @@ impl StructDeserializer {
     ///
     /// Field extraction is O(1) average case. The field is removed from the
     /// deserializer if it exists.
+    #[track_caller]
     pub fn field_or<T: FromFieldValue>(
         &mut self,
         name: &str,
@@ -261,6 +266,7 @@ impl StructDeserializer {
     ///
     /// Field extraction is O(1) average case. The field is removed from the
     /// deserializer if it exists.
+    #[track_caller]
     pub fn field_optional<T: FromFieldValue>(
         &mut self,
         name: &str,
@@ -297,6 +303,7 @@ impl StructDeserializer {
     ///
     /// Field extraction is O(1) average case. The error handling function is
     /// only called when an error occurs.
+    #[track_caller]
     pub fn field_with_error<T: FromFieldValue, F>(
         &mut self,
         name: &str,
@@ -344,6 +351,7 @@ impl StructDeserializer {
     /// This method performs O(n) work to collect all field names, where n is
     /// the number of remaining fields. The returned vector is a copy of the
     /// field names.
+    #[track_caller]
     pub fn remaining_fields(&self) -> Vec<&str> {
         self.fields.keys().map(|s| s.as_str()).collect()
     }
@@ -365,6 +373,7 @@ impl StructDeserializer {
     /// # Performance
     ///
     /// This method performs O(1) average case lookup using HashMap contains_key.
+    #[track_caller]
     pub fn has_field(&self, name: &str) -> bool {
         self.fields.contains_key(name)
     }
@@ -395,6 +404,7 @@ impl StructDeserializer {
     ///
     /// JSON parsing is performed in a single pass. The entire JSON string is
     /// processed to build the field map.
+    #[track_caller]
     pub fn from_json(json: &str) -> SerializationResult<Self> {
         crate::serialization::json::from_json_internal(json)
     }
@@ -426,6 +436,7 @@ impl StructDeserializer {
     ///
     /// Binary parsing is typically faster than JSON parsing due to the more
     /// compact format and lack of string parsing overhead.
+    #[track_caller]
     pub fn from_binary(data: &[u8]) -> SerializationResult<Self> {
         crate::serialization::binary::from_binary_internal(data)
     }

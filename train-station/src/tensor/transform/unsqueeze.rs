@@ -215,6 +215,7 @@ impl Tensor {
     /// let feature_map = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let with_channels = feature_map.unsqueeze(0); // Shape: [1, 2, 2] for conv layers
     /// ```
+    #[track_caller]
     pub fn unsqueeze(&self, dim: usize) -> Tensor {
         let mut new_dims = self.shape().dims.clone();
         assert!(dim <= new_dims.len(), "Dimension {} out of bounds", dim);

@@ -134,6 +134,7 @@ impl Tensor {
     /// assert_eq!(tensor.get(&[1, 2]), 0.0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn zeros(shape_dims: Vec<usize>) -> Self {
         let mut tensor = Self::new(shape_dims);
         tensor.fill(0.0);
@@ -173,6 +174,7 @@ impl Tensor {
     /// assert_eq!(tensor.get(&[1, 2]), 1.0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn ones(shape_dims: Vec<usize>) -> Self {
         let mut tensor = Self::new(shape_dims);
         tensor.fill(1.0);
@@ -215,6 +217,7 @@ impl Tensor {
     /// assert_eq!(tensor.get(&[1, 1]), 0.0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn zeros_on_device(shape_dims: Vec<usize>, device: crate::device::Device) -> Self {
         let mut tensor = Self::new_on_device(shape_dims, device);
         tensor.fill(0.0);
@@ -257,6 +260,7 @@ impl Tensor {
     /// assert_eq!(tensor.get(&[1, 1]), 1.0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn ones_on_device(shape_dims: Vec<usize>, device: crate::device::Device) -> Self {
         let mut tensor = Self::new_on_device(shape_dims, device);
         tensor.fill(1.0);
@@ -301,6 +305,7 @@ impl Tensor {
     /// assert_eq!(empty_tensor.size(), 0);
     /// ```
     #[inline]
+    #[track_caller]
     pub fn fill(&mut self, value: f32) {
         if self.shape().size == 0 {
             return;

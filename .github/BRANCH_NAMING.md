@@ -60,13 +60,13 @@ This project follows a structured branch naming convention to improve code organ
 
 ## Naming Guidelines
 
-### Do ✅
+### Do
 - Use lowercase letters
 - Use hyphens to separate words
 - Keep descriptions concise but descriptive
 - Be specific about what the branch does
 
-### Don't ❌
+### Don't
 - Use spaces or underscores
 - Use generic names like `fix/bug` or `feat/new-feature`
 - Include issue numbers in branch names
@@ -74,7 +74,7 @@ This project follows a structured branch naming convention to improve code organ
 
 ## Examples
 
-### Good Branch Names ✅
+### Good Branch Names
 ```
 feat/tensor-broadcasting
 fix/gradient-accumulation-bug
@@ -85,7 +85,7 @@ test/cuda-validation-suite
 chore/update-rust-version
 ```
 
-### Bad Branch Names ❌
+### Bad Branch Names
 ```
 feature_branch          # Use feat/ prefix and hyphens
 Fix_Bug                 # Use fix/ prefix and lowercase

@@ -106,6 +106,7 @@ impl Tensor {
     /// # Panics
     /// Panics if tensor shapes are not broadcast-compatible or division by zero
     #[inline]
+    #[track_caller]
     pub fn div_tensor(&self, other: &Tensor) -> Tensor {
         // Check if shapes are identical for fast path
         if self.shape().dims == other.shape().dims {
@@ -244,6 +245,7 @@ impl Tensor {
     /// # Panics
     /// Panics if scalar is zero
     #[inline]
+    #[track_caller]
     pub fn div_scalar(&self, scalar: f32) -> Tensor {
         let mut result = self.div_scalar_optimized(scalar);
 

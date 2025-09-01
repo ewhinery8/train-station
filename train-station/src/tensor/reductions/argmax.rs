@@ -62,6 +62,7 @@ impl Tensor {
     /// let max_idx = tensor.argmax();
     /// assert_eq!(max_idx.get(&[0]), 1.0); // First occurrence of 5.0 at index 1
     /// ```
+    #[track_caller]
     pub fn argmax(&self) -> Tensor {
         let mut out = Tensor::new(vec![1]);
         if self.size() == 0 {
@@ -175,6 +176,7 @@ impl Tensor {
     /// assert_eq!(max_idx.shape().dims, vec![1]); // Special case: becomes [1] not []
     /// assert_eq!(max_idx.get(&[0]), 2.0); // Index 2 has maximum value 8.0
     /// ```
+    #[track_caller]
     pub fn argmax_dim(&self, dim: usize, keepdim: bool) -> Tensor {
         let rank = self.shape().rank();
         assert!(

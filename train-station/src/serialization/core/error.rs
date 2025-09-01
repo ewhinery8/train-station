@@ -442,6 +442,7 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Json variant with the specified format error
+    #[track_caller]
     pub fn json_format(message: String, line: Option<usize>, column: Option<usize>) -> Self {
         SerializationError::Json(crate::serialization::json::JsonError::Format {
             message,
@@ -463,6 +464,7 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified format error
+    #[track_caller]
     pub fn binary_format(message: String, position: Option<usize>) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::Format {
             message,
@@ -483,6 +485,7 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified version mismatch error
+    #[track_caller]
     pub fn binary_version_mismatch(expected: u32, found: u32) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::VersionMismatch {
             expected,
@@ -503,6 +506,7 @@ impl SerializationError {
     /// # Returns
     ///
     /// A SerializationError::Binary variant with the specified invalid magic error
+    #[track_caller]
     pub fn binary_invalid_magic(expected: u32, found: u32) -> Self {
         SerializationError::Binary(crate::serialization::binary::BinaryError::InvalidMagic {
             expected,

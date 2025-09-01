@@ -65,6 +65,7 @@ impl<'a> JsonParser<'a> {
     ///
     /// The parser initializes with position 0 and line/column 1, ready
     /// to begin parsing from the start of the input string.
+    #[track_caller]
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
@@ -94,6 +95,7 @@ impl<'a> JsonParser<'a> {
     /// The method skips leading whitespace, parses the root value, skips
     /// trailing whitespace, and ensures no unexpected characters remain
     /// in the input.
+    #[track_caller]
     pub fn parse(&mut self) -> SerializationResult<JsonValue> {
         self.skip_whitespace();
         let value = self.parse_value()?;
@@ -633,6 +635,7 @@ impl<'a> JsonParser<'a> {
 /// - **Line and Column Numbers**: Precise location of parsing errors
 /// - **Context Information**: Surrounding text for error diagnosis
 /// - **Validation**: Comprehensive validation of JSON structure and content
+#[track_caller]
 pub fn parse(input: &str) -> SerializationResult<JsonValue> {
     let mut parser = JsonParser::new(input);
     parser.parse()

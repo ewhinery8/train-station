@@ -268,6 +268,7 @@ pub trait Serializable: Sized {
     /// // Clean up
     /// std::fs::remove_file(&json_path).ok();
     /// ```
+    #[track_caller]
     fn save<P: AsRef<Path>>(&self, path: P, format: Format) -> SerializationResult<()> {
         let file = OpenOptions::new()
             .write(true)
@@ -293,6 +294,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// `Ok(())` on success, or `SerializationError` on failure
+    #[track_caller]
     fn save_to_writer<W: Write>(&self, writer: &mut W, format: Format) -> SerializationResult<()> {
         match format {
             Format::Json => {
@@ -370,6 +372,7 @@ pub trait Serializable: Sized {
     /// // Clean up
     /// std::fs::remove_file(&json_path).ok();
     /// ```
+    #[track_caller]
     fn load<P: AsRef<Path>>(path: P, format: Format) -> SerializationResult<Self> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
@@ -390,6 +393,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// The deserialized object on success, or `SerializationError` on failure
+    #[track_caller]
     fn load_from_reader<R: Read>(reader: &mut R, format: Format) -> SerializationResult<Self> {
         match format {
             Format::Json => {
@@ -414,6 +418,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// JSON string representation of the object on success, or `SerializationError` on failure
+    #[track_caller]
     fn to_json(&self) -> SerializationResult<String>;
 
     /// Deserialize an object from JSON format
@@ -428,6 +433,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// The deserialized object on success, or `SerializationError` on failure
+    #[track_caller]
     fn from_json(json: &str) -> SerializationResult<Self>;
 
     /// Serialize the object to binary format
@@ -439,6 +445,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// Binary representation of the object on success, or `SerializationError` on failure
+    #[track_caller]
     fn to_binary(&self) -> SerializationResult<Vec<u8>>;
 
     /// Deserialize an object from binary format
@@ -454,6 +461,7 @@ pub trait Serializable: Sized {
     /// # Returns
     ///
     /// The deserialized object on success, or `SerializationError` on failure
+    #[track_caller]
     fn from_binary(data: &[u8]) -> SerializationResult<Self>;
 }
 

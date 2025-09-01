@@ -29,6 +29,7 @@ use crate::serialization::core::{
 /// The function supports all FieldValue types including primitive types, strings,
 /// binary data, arrays, objects, enums, and optional values. Each type is converted
 /// to its appropriate JSON representation with proper formatting and escaping.
+#[track_caller]
 pub fn to_json_internal(serializer: StructSerializer) -> SerializationResult<String> {
     let mut json_fields = Vec::new();
 
@@ -183,6 +184,7 @@ fn field_value_to_json_static(value: FieldValue) -> SerializationResult<String> 
 ///
 /// The function provides detailed error information for parsing issues including
 /// invalid JSON syntax, non-object JSON structures, and type conversion failures.
+#[track_caller]
 pub fn from_json_internal(json: &str) -> SerializationResult<StructDeserializer> {
     let json_value = parse_json(json)?;
 

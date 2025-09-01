@@ -144,6 +144,7 @@ impl Tensor {
     /// The permuted tensor maintains the same underlying data but with
     /// reordered strides. This means the tensor becomes non-contiguous
     /// unless the permutation is the identity permutation.
+    #[track_caller]
     pub fn permute(&self, dims: Vec<usize>) -> Tensor {
         let rank = self.shape().rank();
         assert_eq!(

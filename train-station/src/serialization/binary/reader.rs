@@ -47,6 +47,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// A new BinaryReader instance with byte counting initialized to zero
+    #[track_caller]
     pub fn new(reader: R) -> Self {
         Self {
             reader,
@@ -63,6 +64,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The total number of bytes read
+    #[track_caller]
     pub fn bytes_read(&self) -> usize {
         self.bytes_read
     }
@@ -75,6 +77,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 8-bit unsigned integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_u8(&mut self) -> SerializationResult<u8> {
         let mut buf = [0u8; 1];
         self.reader.read_exact(&mut buf)?;
@@ -90,6 +93,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 16-bit unsigned integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_u16(&mut self) -> SerializationResult<u16> {
         let mut buf = [0u8; 2];
         self.reader.read_exact(&mut buf)?;
@@ -105,6 +109,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 32-bit unsigned integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_u32(&mut self) -> SerializationResult<u32> {
         let mut buf = [0u8; 4];
         self.reader.read_exact(&mut buf)?;
@@ -120,6 +125,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 64-bit unsigned integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_u64(&mut self) -> SerializationResult<u64> {
         let mut buf = [0u8; 8];
         self.reader.read_exact(&mut buf)?;
@@ -135,6 +141,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 8-bit signed integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_i8(&mut self) -> SerializationResult<i8> {
         Ok(self.read_u8()? as i8)
     }
@@ -147,6 +154,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 16-bit signed integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_i16(&mut self) -> SerializationResult<i16> {
         Ok(self.read_u16()? as i16)
     }
@@ -159,6 +167,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 32-bit signed integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_i32(&mut self) -> SerializationResult<i32> {
         Ok(self.read_u32()? as i32)
     }
@@ -171,6 +180,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 64-bit signed integer on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_i64(&mut self) -> SerializationResult<i64> {
         Ok(self.read_u64()? as i64)
     }
@@ -183,6 +193,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 32-bit floating point number on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_f32(&mut self) -> SerializationResult<f32> {
         Ok(f32::from_bits(self.read_u32()?))
     }
@@ -195,6 +206,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The 64-bit floating point number on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_f64(&mut self) -> SerializationResult<f64> {
         Ok(f64::from_bits(self.read_u64()?))
     }
@@ -208,6 +220,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The platform-specific size value on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_usize(&mut self) -> SerializationResult<usize> {
         let value = self.read_u64()?;
         if value > usize::MAX as u64 {
@@ -227,6 +240,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The boolean value on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_bool(&mut self) -> SerializationResult<bool> {
         match self.read_u8()? {
             0 => Ok(false),
@@ -252,6 +266,7 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// - String length must not exceed 1,000,000 bytes
     /// - String data must be valid UTF-8 encoding
+    #[track_caller]
     pub fn read_string(&mut self) -> SerializationResult<String> {
         let length = self.read_u32()? as usize;
         if length > 1_000_000 {
@@ -284,6 +299,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The raw bytes on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_bytes(&mut self, length: usize) -> SerializationResult<Vec<u8>> {
         let mut buf = vec![0u8; length];
         self.reader.read_exact(&mut buf)?;
@@ -299,6 +315,7 @@ impl<R: Read> BinaryReader<R> {
     /// # Returns
     ///
     /// The vector of 8-bit unsigned integers on success, or `SerializationError` on failure
+    #[track_caller]
     pub fn read_vec_u8(&mut self) -> SerializationResult<Vec<u8>> {
         let length = self.read_u64()? as usize;
         self.validate_collection_size(length, 1)?;
@@ -314,6 +331,7 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// The vector of platform-specific size values on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn read_vec_usize(&mut self) -> SerializationResult<Vec<usize>> {
         let length = self.read_u64()? as usize;
         self.validate_collection_size(length, 8)?;
@@ -334,6 +352,7 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// The vector of 32-bit floating point numbers on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn read_vec_f32(&mut self) -> SerializationResult<Vec<f32>> {
         let length = self.read_u64()? as usize;
         self.validate_collection_size(length, 4)?;
@@ -359,6 +378,7 @@ impl<R: Read> BinaryReader<R> {
     ///
     /// The optional value on success, or `SerializationError` on failure
     #[allow(unused)]
+    #[track_caller]
     pub fn read_option<T, F>(&mut self, read_fn: F) -> SerializationResult<Option<T>>
     where
         F: FnOnce(&mut Self) -> SerializationResult<T>,

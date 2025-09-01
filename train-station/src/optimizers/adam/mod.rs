@@ -224,6 +224,7 @@ impl Adam {
     /// # Returns
     ///
     /// A new Adam optimizer instance with default hyperparameters
+    #[track_caller]
     pub fn new() -> Self {
         Self::default()
     }
@@ -241,6 +242,7 @@ impl Adam {
     /// # Returns
     ///
     /// A new Adam optimizer instance with the specified configuration
+    #[track_caller]
     pub fn with_config(config: AdamConfig) -> Self {
         Self {
             config,
@@ -264,6 +266,7 @@ impl Adam {
     ///
     /// A new Adam optimizer instance with the specified learning rate and default
     /// values for all other hyperparameters
+    #[track_caller]
     pub fn with_learning_rate(learning_rate: f32) -> Self {
         let config = AdamConfig {
             learning_rate,
@@ -284,6 +287,7 @@ impl Adam {
     /// # Panics
     ///
     /// Panics if the parameter does not have `requires_grad` set to true
+    #[track_caller]
     pub fn add_parameter(&mut self, parameter: &Tensor) {
         assert!(
             parameter.requires_grad(),
@@ -313,6 +317,7 @@ impl Adam {
     /// # Panics
     ///
     /// Panics if any parameter does not have `requires_grad` set to true
+    #[track_caller]
     pub fn add_parameters(&mut self, parameters: &[&Tensor]) {
         for parameter in parameters {
             self.add_parameter(parameter);
@@ -331,6 +336,7 @@ impl Adam {
     /// # Returns
     ///
     /// True if the parameter was linked and removed, false if it was not linked
+    #[track_caller]
     pub fn unlink_parameter(&mut self, parameter: &Tensor) -> bool {
         let param_id = parameter.id();
         let was_linked = self.states.remove(&param_id).is_some();
@@ -344,6 +350,7 @@ impl Adam {
     ///
     /// Clears all parameter states, effectively unlinking all parameters.
     /// This is useful for resetting the optimizer or preparing for parameter re-linking.
+    #[track_caller]
     pub fn clear_states(&mut self) {
         self.states.clear();
         self.insertion_order.clear();
@@ -360,6 +367,7 @@ impl Adam {
     /// # Returns
     ///
     /// True if the parameter is linked, false otherwise
+    #[track_caller]
     pub fn is_parameter_linked(&self, parameter: &Tensor) -> bool {
         let param_id = parameter.id();
         self.states.contains_key(&param_id)
@@ -372,6 +380,7 @@ impl Adam {
     /// # Returns
     ///
     /// Number of linked parameters
+    #[track_caller]
     pub fn parameter_count(&self) -> usize {
         self.states.len()
     }
@@ -393,6 +402,7 @@ impl Adam {
     /// # Panics
     ///
     /// Panics if any parameter does not have `requires_grad` set to true
+    #[track_caller]
     pub fn relink_parameters(&mut self, parameters: &[&Tensor]) -> Result<(), String> {
         // Validate all parameters have requires_grad first
         for (i, param) in parameters.iter().enumerate() {
@@ -461,6 +471,7 @@ impl Adam {
     /// # Returns
     ///
     /// Reference to the current Adam configuration
+    #[track_caller]
     pub fn config(&self) -> &AdamConfig {
         &self.config
     }

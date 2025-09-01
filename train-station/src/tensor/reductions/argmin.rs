@@ -31,6 +31,7 @@ impl Tensor {
     /// let min_index = empty_tensor.argmin();
     /// assert_eq!(min_index.get(&[0]), 0.0);
     /// ```
+    #[track_caller]
     pub fn argmin(&self) -> Tensor {
         let mut out = Tensor::new(vec![1]);
         if self.size() == 0 {
@@ -142,6 +143,7 @@ impl Tensor {
     /// assert_eq!(index.shape().dims, vec![1]);
     /// assert_eq!(index.get(&[0]), 0.0); // 1.0 is at index 0
     /// ```
+    #[track_caller]
     pub fn argmin_dim(&self, dim: usize, keepdim: bool) -> Tensor {
         let rank = self.shape().rank();
         assert!(

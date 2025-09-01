@@ -133,6 +133,7 @@ impl Tensor {
     /// - Gradients are scattered back to the selected slice in the input tensor
     /// - Other positions in the input tensor receive zero gradients
     /// - This behavior ensures correct gradient flow for the selected elements
+    #[track_caller]
     pub fn select(&self, dim: usize, index: usize) -> Tensor {
         let rank = self.shape().rank();
         assert!(rank > 0, "select requires non-zero rank");
