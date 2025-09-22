@@ -27,7 +27,7 @@
 //! // Add dimension at the beginning
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
 //! let unsqueezed = tensor.unsqueeze(0);
-//! assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+//! assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
 //! ```
 //!
 //! ```
@@ -36,7 +36,7 @@
 //! // Add dimension at the end
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
 //! let unsqueezed = tensor.unsqueeze(1);
-//! assert_eq!(unsqueezed.shape().dims, vec![3, 1]);
+//! assert_eq!(unsqueezed.shape().dims(), vec![3, 1]);
 //! ```
 //!
 //! # Gradient Tracking
@@ -82,7 +82,7 @@ impl Tensor {
     /// // Add dimension at the beginning
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(0);
-    /// assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
     /// assert_eq!(unsqueezed.get(&[0, 0]), 1.0);
     /// assert_eq!(unsqueezed.get(&[0, 1]), 2.0);
     /// assert_eq!(unsqueezed.get(&[0, 2]), 3.0);
@@ -94,7 +94,7 @@ impl Tensor {
     /// // Add dimension at the end
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(1);
-    /// assert_eq!(unsqueezed.shape().dims, vec![3, 1]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![3, 1]);
     /// assert_eq!(unsqueezed.get(&[0, 0]), 1.0);
     /// assert_eq!(unsqueezed.get(&[1, 0]), 2.0);
     /// assert_eq!(unsqueezed.get(&[2, 0]), 3.0);
@@ -106,7 +106,7 @@ impl Tensor {
     /// // Add dimension in the middle of 2D tensor
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(1);
-    /// assert_eq!(unsqueezed.shape().dims, vec![2, 1, 2]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![2, 1, 2]);
     /// assert_eq!(unsqueezed.get(&[0, 0, 0]), 1.0);
     /// assert_eq!(unsqueezed.get(&[0, 0, 1]), 2.0);
     /// assert_eq!(unsqueezed.get(&[1, 0, 0]), 3.0);
@@ -120,7 +120,7 @@ impl Tensor {
     /// let data = vec![1.0, 2.0, 3.0, 4.0];
     /// let tensor = Tensor::from_slice(&data, vec![4]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(0);
-    /// assert_eq!(unsqueezed.shape().dims, vec![1, 4]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![1, 4]);
     /// assert_eq!(unsqueezed.size(), 4);
     /// for (i, &d) in data.iter().enumerate() {
     ///     assert_eq!(unsqueezed.get(&[0, i]), d);
@@ -136,7 +136,7 @@ impl Tensor {
     ///
     /// let unsqueezed = tensor.unsqueeze(0);
     /// assert!(unsqueezed.requires_grad());
-    /// assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
     /// ```
     ///
     /// ```
@@ -145,10 +145,10 @@ impl Tensor {
     /// // Unsqueeze and squeeze roundtrip
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(0);
-    /// assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
     ///
     /// let squeezed = unsqueezed.squeeze(Some(0));
-    /// assert_eq!(squeezed.shape().dims, vec![3]);
+    /// assert_eq!(squeezed.shape().dims(), vec![3]);
     /// assert_eq!(squeezed.get(&[0]), 1.0);
     /// assert_eq!(squeezed.get(&[2]), 3.0);
     /// ```
@@ -159,10 +159,10 @@ impl Tensor {
     /// // Multiple unsqueeze operations
     /// let tensor = Tensor::from_slice(&[42.0], vec![1]).unwrap();
     /// let unsqueezed1 = tensor.unsqueeze(0);
-    /// assert_eq!(unsqueezed1.shape().dims, vec![1, 1]);
+    /// assert_eq!(unsqueezed1.shape().dims(), vec![1, 1]);
     ///
     /// let unsqueezed2 = unsqueezed1.unsqueeze(0);
-    /// assert_eq!(unsqueezed2.shape().dims, vec![1, 1, 1]);
+    /// assert_eq!(unsqueezed2.shape().dims(), vec![1, 1, 1]);
     /// assert_eq!(unsqueezed2.get(&[0, 0, 0]), 42.0);
     /// ```
     ///
@@ -217,7 +217,7 @@ impl Tensor {
     /// ```
     #[track_caller]
     pub fn unsqueeze(&self, dim: usize) -> Tensor {
-        let mut new_dims = self.shape().dims.clone();
+        let mut new_dims = self.shape().dims().to_vec();
         assert!(dim <= new_dims.len(), "Dimension {} out of bounds", dim);
         new_dims.insert(dim, 1);
 
@@ -237,11 +237,11 @@ mod tests {
 
         // Unsqueeze at beginning
         let unsqueezed = tensor.unsqueeze(0);
-        assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+        assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
 
         // Unsqueeze at end
         let unsqueezed = tensor.unsqueeze(1);
-        assert_eq!(unsqueezed.shape().dims, vec![3, 1]);
+        assert_eq!(unsqueezed.shape().dims(), vec![3, 1]);
     }
 
     #[test]
@@ -250,13 +250,13 @@ mod tests {
 
         // Unsqueeze at different positions
         let unsqueezed = tensor.unsqueeze(0);
-        assert_eq!(unsqueezed.shape().dims, vec![1, 2, 2]);
+        assert_eq!(unsqueezed.shape().dims(), vec![1, 2, 2]);
 
         let unsqueezed = tensor.unsqueeze(1);
-        assert_eq!(unsqueezed.shape().dims, vec![2, 1, 2]);
+        assert_eq!(unsqueezed.shape().dims(), vec![2, 1, 2]);
 
         let unsqueezed = tensor.unsqueeze(2);
-        assert_eq!(unsqueezed.shape().dims, vec![2, 2, 1]);
+        assert_eq!(unsqueezed.shape().dims(), vec![2, 2, 1]);
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![4]).unwrap();
         let unsqueezed = tensor.unsqueeze(0);
 
-        assert_eq!(unsqueezed.shape().dims, vec![1, 4]);
+        assert_eq!(unsqueezed.shape().dims(), vec![1, 4]);
         assert_eq!(unsqueezed.size(), 4);
 
         // Verify data is preserved
@@ -288,7 +288,7 @@ mod tests {
 
         let unsqueezed = tensor.unsqueeze(0);
         assert!(unsqueezed.requires_grad());
-        assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+        assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
     }
 
     #[test]
@@ -297,7 +297,7 @@ mod tests {
         let unsqueezed = tensor.unsqueeze(0);
         let squeezed = unsqueezed.squeeze(Some(0));
 
-        assert_eq!(squeezed.shape().dims, tensor.shape().dims);
+        assert_eq!(squeezed.shape().dims(), tensor.shape().dims());
         assert_eq!(squeezed.get(&[0]), tensor.get(&[0]));
         assert_eq!(squeezed.get(&[2]), tensor.get(&[2]));
     }
@@ -308,7 +308,7 @@ mod tests {
         let unsqueezed1 = tensor.unsqueeze(0);
         let unsqueezed2 = unsqueezed1.unsqueeze(0);
 
-        assert_eq!(unsqueezed2.shape().dims, vec![1, 1, 1]);
+        assert_eq!(unsqueezed2.shape().dims(), vec![1, 1, 1]);
         assert_eq!(unsqueezed2.get(&[0, 0, 0]), 42.0);
     }
 }

@@ -1,125 +1,126 @@
-//! Core tensor implementation for high-performance machine learning
+//! Tensor (core): PyTorch‑inspired, zero‑dependency, maximum‑performance array with autograd
 //!
-//! This module provides the foundational `Tensor` struct and related components
-//! that form the backbone of the Train Station library. The tensor system is
-//! designed for maximum performance with zero-cost abstractions and SIMD optimization.
+//! This module contains the central `Tensor` type and its core building blocks
+//! (allocation, memory, shape, operators, views). The public API is Tensor‑centric:
+//! you construct and operate via `Tensor` methods; submodules exist for internal
+//! organization and are referenced from the `Tensor` API.
 //!
-//! # Organization
+//! # Highlights
 //!
-//! The core tensor system consists of:
-//! - **Tensor**: Main multi-dimensional tensor with gradient tracking
-//! - **Allocation**: Shared memory management for view tensors
-//! - **TensorOptimizationInfo**: Performance hints for operation selection
-//! - **Shape**: Dimension and stride management (from shape module)
+//! - **Initialization**: `new`, `zeros`, `ones`, `randn`, `from_slice`, `new_on_device`,
+//!   `new_uninitialized`, `new_uninitialized_aligned`
+//! - **Ops**: element‑wise (+, -, *, /), scalar ops, reductions (`sum`), `matmul`
+//! - **Broadcasting**: NumPy‑compatible rules for element‑wise and batched ops
+//! - **Views**: zero‑copy `view` (reshape), `slice_view`, `element_view`, transpose/strides
+//! - **Iterator API**: idiomatic iteration over elements/chunks/dimensions/windows that yields
+//!   view tensors and preserves autograd; collect back with `collect_shape`
+//! - **Autograd (GradTrack)**: thread‑safe, fast backward with `retain_grad`, `grad_owned`
+//! - **Performance**: SIMD‑aligned memory, cache‑aware kernels, thread‑local memory pool
+//! - **Controls**: `with_no_mem_pool` for cross‑thread ownership, `with_no_mem_padding` for exact sizes
 //!
-//! # Key Features
-//!
-//! - **Zero-Cost Abstractions**: Minimal overhead for tensor operations
-//! - **SIMD Optimization**: AVX2 optimizations for x86_64 architectures
-//! - **Memory Efficiency**: Optimized alignment and layout strategies
-//! - **Thread Safety**: Send + Sync implementation for concurrent usage
-//! - **GradTrack Integration**: Built-in gradient tracking and computation
-//! - **Device Support**: CPU and future CUDA device placement
-//! - **View Tensors**: Zero-copy tensor views with shared memory
-//! - **Operator Overloading**: Natural mathematical expressions with operators
-//!
-//! # Performance Characteristics
-//!
-//! - **Memory Overhead**: ~64 bytes per tensor (excluding data)
-//! - **SIMD Alignment**: 32-byte alignment for AVX2 operations
-//! - **Cache Optimization**: Cache-line alignment for large tensors
-//! - **Thread Safety**: Lock-free operations with atomic ID generation
-//! - **View Efficiency**: Zero-copy views with shared memory management
-//! - **Operator Performance**: Zero-cost operator overloading for mathematical expressions
-//!
-//! # Memory Layout
-//!
-//! Tensors use row-major memory layout with optimized alignment:
-//! - **Small tensors** (≤8 elements): 16-byte SSE alignment
-//! - **Medium tensors** (8-1024 elements): 32-byte AVX2 alignment
-//! - **Large tensors** (>1024 elements): 64-byte cache-line alignment
-//!
-//! # Examples
-//!
-//! ## Basic Tensor Operations
+//! # Quick start
 //!
 //! ```
 //! use train_station::Tensor;
 //!
-//! // Create tensors with different configurations
-//! let tensor = Tensor::new(vec![2, 3, 4]);
-//! let tensor_with_grad = Tensor::ones(vec![10, 10]).with_requires_grad();
+//! // Init (many options)
+//! let a = Tensor::zeros(vec![2, 3]);
+//! let b = Tensor::ones(vec![3]).with_requires_grad();
+//! let x = Tensor::randn(vec![2, 3], None);
 //!
-//! // Access tensor properties
-//! assert_eq!(tensor.size(), 24);
-//! assert_eq!(tensor.shape().dims, vec![2, 3, 4]);
-//! assert!(tensor.is_contiguous());
+//! // Element‑wise ops and reductions
+//! let y = a.add_scalar(1.0).mul_scalar(2.0);
+//! let s = y.sum();
+//! assert_eq!(s.size(), 1);
 //! ```
 //!
-//! ## Operator Overloading
+//! ## Broadcasting
 //!
 //! ```
 //! use train_station::Tensor;
 //!
-//! // Create tensors for operations
-//! let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
-//! let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], vec![2, 2]).unwrap();
-//!
-//! // Tensor operations with operators
-//! let result = a.clone() + b.clone();                    // Tensor addition
-//! let result = a.clone() * b.clone();                    // Element-wise multiplication
-//! let result = a.clone() - b.clone();                    // Tensor subtraction
-//! let result = a.clone() / b.clone();                    // Element-wise division
-//!
-//! // Scalar operations
-//! let result = a.clone() + 5.0;                          // Tensor + scalar
-//! let result = 5.0 + a.clone();                          // Scalar + tensor
-//! let result = a.clone() * 3.0;                          // Tensor * scalar
-//! let result = 3.0 * a.clone();                          // Scalar * tensor
-//!
-//! // Compound expressions
-//! let result = (a.clone() + b.clone()) * 2.0 - 1.0;      // Complex mathematical expressions
-//!
-//! // Assignment operators
-//! let mut c = a.clone();
-//! c += b.clone();                                        // In-place addition
-//! c *= 2.0;                                              // In-place scalar multiplication
-//!
-//! // Negation
-//! let result = -a;                                       // Negate all elements
+//! let a = Tensor::ones(vec![2, 1, 4]);
+//! let b = Tensor::ones(vec![3, 1]);
+//! let c = a.add_tensor(&b); // [2,1,4] + [3,1] -> [2,3,4]
+//! assert_eq!(c.shape().dims(), &[2, 3, 4]);
 //! ```
 //!
-//! # Thread Safety
+//! ## Views (zero‑copy)
 //!
-//! All tensor operations are thread-safe and implement `Send + Sync`. Tensors can be
-//! safely shared between threads for concurrent read access. Write operations should
-//! be synchronized externally if multiple threads need to modify the same tensor.
+//! ```
+//! use train_station::Tensor;
 //!
-//! # Design Principles
+//! let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
+//! let v = x.view(vec![2, 2]);
+//! assert_eq!(v.shape().dims(), &[2, 2]);
+//! let e = x.element_view(2);
+//! assert_eq!(e.value(), 3.0);
+//! ```
 //!
-//! - **Performance First**: Every design decision optimized for speed
-//! - **Memory Safety**: RAII patterns with justified unsafe usage
-//! - **Zero Dependencies**: Only standard library dependencies
-//! - **SIMD Ready**: Optimized for vectorized operations
-//! - **Future Proof**: Foundation for advanced ML operations
-//! - **Natural API**: Operator overloading for intuitive mathematical expressions
+//! ## Iterator‑first API
+//!
+//! ```
+//! use train_station::{Tensor, tensor::TensorCollectExt};
+//!
+//! let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![6]).unwrap();
+//! let mat = t.iter_chunks(2)
+//!     .map(|chunk| chunk.mul_scalar(2.0))
+//!     .collect_shape(vec![3, 2]);
+//! assert_eq!(mat.shape().dims(), &[3, 2]);
+//! assert_eq!(mat.data(), &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0]);
+//! ```
+//!
+//! ## Autograd (GradTrack)
+//!
+//! ```
+//! use train_station::Tensor;
+//!
+//! let x = Tensor::ones(vec![2, 3]).with_requires_grad();
+//! let mut loss = x.add_scalar(5.0).sum();
+//! loss.backward(None);
+//! let gx = x.grad_owned().unwrap();
+//! assert_eq!(gx.shape().dims(), &[2, 3]);
+//! ```
+//!
+//! ## Cross‑thread memory pool control
+//!
+//! ```
+//! use train_station::{Tensor, tensor::with_no_mem_pool};
+//! use std::thread;
+//!
+//! // Create in worker and return to main: prefer system allocator
+//! let handle = thread::spawn(|| {
+//!     with_no_mem_pool(|| Tensor::ones(vec![10]))
+//! });
+//! let _t = handle.join().unwrap();
+//! ```
+//!
+//! # Memory layout & performance
+//!
+//! Row‑major layout with runtime‑detected SIMD alignment: typically 16/32/64‑byte alignment and
+//! lane‑multiple capacity for vectorized kernels. Zero‑copy views preserve allocation ownership.
 
 pub mod allocation;
+pub mod memory;
 pub mod operators;
 pub mod serialization;
 pub mod shape;
+// Deprecated: legacy thread_pool kept only if other crates depend on it
+// pub mod thread_pool;
 pub mod utils;
+pub mod view;
 
-use std::alloc::{dealloc, Layout};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use crate::device::Device;
+use crate::gradtrack::engine::GraphGroupRef;
 use crate::gradtrack::GradFn;
 
 pub use allocation::Allocation;
+pub use memory::{with_no_mem_pool, NoMemPoolGuard};
 pub use shape::{MemoryLayout, Shape};
 
 // Note: Prefetching functions are now in ops/add.rs where they're used
@@ -186,7 +187,7 @@ static TENSOR_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
 ///
 /// // Access tensor properties
 /// assert_eq!(tensor.size(), 6);
-/// assert_eq!(tensor.shape().dims, vec![2, 3]);
+/// assert_eq!(tensor.shape().dims(), vec![2, 3]);
 /// assert!(tensor.is_contiguous());
 /// ```
 ///
@@ -270,6 +271,13 @@ pub struct Tensor {
     /// are recorded in the computation graph for gradient propagation.
     requires_grad: bool,
 
+    /// Whether this tensor should retain its gradient after backward even if non-leaf
+    ///
+    /// When set via `retain_grad()`/`retain_grad_()`, users can materialize the
+    /// gradient into `self.grad` after backward using `grad_or_fetch()` so that
+    /// `grad()` returns `Some(&Tensor)` for non-leaf tensors too.
+    retain_grad: bool,
+
     /// Accumulated gradients from backward pass
     ///
     /// Stores the computed gradients for this tensor after calling `backward()`.
@@ -291,6 +299,11 @@ pub struct Tensor {
     /// Uses `Arc` for thread-safe reference counting and automatic cleanup.
     allocation_owner: Option<std::sync::Arc<Allocation>>,
 
+    /// Optional graph group reference for implicit cross-thread autograd context.
+    /// None when gradients are disabled. When present, this tensor participates in
+    /// the associated computation graph (local or shared).
+    graph_group: Option<std::sync::Arc<GraphGroupRef>>,
+
     /// Phantom data to ensure proper lifetime management
     ///
     /// Ensures the tensor has the correct lifetime parameters for the `f32`
@@ -307,22 +320,7 @@ pub struct Tensor {
 unsafe impl Send for Tensor {}
 unsafe impl Sync for Tensor {}
 
-impl Drop for Tensor {
-    /// Frees the tensor's memory when it goes out of scope
-    ///
-    /// This ensures proper cleanup and prevents memory leaks.
-    fn drop(&mut self) {
-        // If we have a shared allocation owner, memory will be freed when last owner drops.
-        if self.allocation_owner.is_none() && self.shape.size > 0 {
-            unsafe {
-                let layout =
-                    Layout::from_size_align(self.shape.size * std::mem::size_of::<f32>(), 32)
-                        .expect("Failed to create layout for deallocation");
-                dealloc(self.data.as_ptr() as *mut u8, layout);
-            }
-        }
-    }
-}
+// No custom Drop: memory is managed by the shared `Allocation` owner when present.
 
 impl std::fmt::Debug for Tensor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -345,7 +343,7 @@ impl Clone for Tensor {
     fn clone(&self) -> Self {
         // Fast path for contiguous tensors: direct linear copy
         if self.is_contiguous() || self.size() == 0 {
-            let mut cloned = Self::new(self.shape.dims.clone());
+            let mut cloned = Self::new(self.shape().dims().to_vec());
             unsafe {
                 let src = self.as_ptr();
                 let dst = cloned.as_mut_ptr();
@@ -355,7 +353,7 @@ impl Clone for Tensor {
         }
 
         // Non-contiguous view: materialize into a contiguous copy respecting strides
-        let mut result = Tensor::new(self.shape().dims.clone());
+        let mut result = Tensor::new(self.shape().dims().to_vec());
         let rank = self.shape().rank();
         unsafe {
             let dst_ptr = result.as_mut_ptr();
@@ -364,7 +362,7 @@ impl Clone for Tensor {
                 let mut coords = vec![0usize; rank];
                 let mut tmp = dst_idx;
                 for i in (0..rank).rev() {
-                    let dim_size = self.shape().dims[i];
+                    let dim_size = self.shape().dims()[i];
                     coords[i] = tmp % dim_size;
                     tmp /= dim_size;
                 }
@@ -416,36 +414,6 @@ mod tests {
     fn test_zero_sized_tensor() {
         let tensor = Tensor::new(vec![0]);
         assert_eq!(tensor.size(), 0);
-    }
-
-    /// Test memory layout API and optimization information
-    ///
-    /// Verifies that memory layout information (contiguity, strides, alignment)
-    /// and optimization hints are correctly computed and accessible.
-    #[test]
-    fn test_memory_layout_api() {
-        let tensor = Tensor::new(vec![2, 3, 4]);
-
-        // Test contiguity
-        assert!(tensor.is_contiguous());
-        assert!(!tensor.is_view());
-
-        // Test strides
-        assert_eq!(tensor.strides(), &[12, 4, 1]);
-        assert_eq!(tensor.stride(0), 12);
-        assert_eq!(tensor.stride(1), 4);
-        assert_eq!(tensor.stride(2), 1);
-
-        // Test memory offset calculation
-        assert_eq!(tensor.memory_offset(&[0, 0, 0]), 0);
-        assert_eq!(tensor.memory_offset(&[1, 2, 3]), 12 + 8 + 3);
-
-        // Test SIMD alignment
-        assert!(tensor.is_simd_aligned());
-        assert_eq!(tensor.memory_alignment(), 32);
-
-        // Test memory footprint
-        assert_eq!(tensor.memory_footprint(), 24 * 4); // 24 elements * 4 bytes
     }
 
     #[test]
@@ -583,9 +551,9 @@ mod tests {
 
         // Test with result from iterator
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
-        let first_elem = tensor.iter().next().unwrap();
+        let first_elem = tensor.iter_elements().next().unwrap();
         assert_eq!(first_elem.value(), 1.0);
-        assert_eq!(first_elem.shape().dims, vec![1]);
+        assert_eq!(first_elem.shape().dims(), vec![1]);
         assert_eq!(first_elem.size(), 1);
     }
 

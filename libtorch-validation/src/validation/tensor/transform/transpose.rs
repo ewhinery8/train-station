@@ -31,7 +31,7 @@ impl TensorValidator {
         let mut our_loss = our_result.sum();
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(grad) => grad,
             None => {
                 return ComparisonResult::failure("Our source tensor has no gradient".to_string())

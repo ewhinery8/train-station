@@ -70,7 +70,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-1.0, 0.0, 1.0], vec![3]).unwrap();
     /// let b = a.sigmoid();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert!((b.get(&[0]) - 0.26894143).abs() < 1e-6); // sigmoid(-1.0)
     /// assert!((b.get(&[1]) - 0.5).abs() < 1e-6); // sigmoid(0.0)
     /// assert!((b.get(&[2]) - 0.7310586).abs() < 1e-6); // sigmoid(1.0)
@@ -83,13 +83,13 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-10.0, 10.0], vec![2]).unwrap();
     /// let b = a.sigmoid();
-    /// assert_eq!(b.shape().dims, vec![2]);
+    /// assert_eq!(b.shape().dims(), vec![2]);
     /// assert!(b.get(&[0]) < 1e-4); // sigmoid(-10.0) ≈ 0
     /// assert!(b.get(&[1]) > 0.9999); // sigmoid(10.0) ≈ 1
     /// ```
     #[track_caller]
     pub fn sigmoid(&self) -> Tensor {
-        let mut out = Tensor::new(self.shape().dims.clone());
+        let mut out = Tensor::new(self.shape().dims().to_vec());
         unsafe {
             let src = self.as_ptr();
             let dst = out.as_mut_ptr();

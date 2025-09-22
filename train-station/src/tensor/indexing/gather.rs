@@ -38,7 +38,7 @@ impl Tensor {
     /// let result = tensor.gather(1, &indices, &index_shape);
     ///
     /// // Result shape is [2, 2]
-    /// assert_eq!(result.shape().dims, vec![2, 2]);
+    /// assert_eq!(result.shape().dims(), vec![2, 2]);
     ///
     /// // Row 0: indices [2, 0] -> [0.2, 0.0]
     /// assert!((result.get(&[0, 0]) - 0.2).abs() < 1e-6);
@@ -63,7 +63,7 @@ impl Tensor {
     ///
     /// // Compute gradients
     /// result.backward(None);
-    /// let grad = tensor.grad_by_value().expect("gradient missing");
+    /// let grad = tensor.grad_owned().expect("gradient missing");
     ///
     /// // Verify gradient accumulation for repeated indices
     /// assert!((grad.get(&[0, 1]) - 2.0).abs() < 1e-6); // Index 1 used twice in row 0
@@ -124,11 +124,11 @@ impl Tensor {
             if i != dim {
                 assert_eq!(
                     s,
-                    self.shape().dims[i],
+                    self.shape().dims()[i],
                     "index_shape mismatch at dim {}: {} vs {}",
                     i,
                     s,
-                    self.shape().dims[i]
+                    self.shape().dims()[i]
                 );
             }
         }
@@ -143,7 +143,7 @@ impl Tensor {
         );
 
         // Validate indices range along dim
-        let dim_size = self.shape().dims[dim];
+        let dim_size = self.shape().dims()[dim];
         for &idx in indices.iter() {
             assert!(
                 idx < dim_size,
@@ -189,7 +189,7 @@ impl Tensor {
             let grad_fn = GradFn::Gather {
                 dim,
                 indices: indices.to_vec(),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 index_shape: index_shape.to_vec(),
             };
             output.set_grad_fn(grad_fn.clone());
@@ -209,7 +209,7 @@ mod tests {
         // x shape [2,3]: [[0.0, 0.1, 0.2],[0.3,0.4,0.5]]
         let x = Tensor::from_slice(&[0.0, 0.1, 0.2, 0.3, 0.4, 0.5], vec![2, 3]).unwrap();
         let out = x.gather(1, &[2, 0, 1, 1], &[2, 2]);
-        assert_eq!(out.shape().dims, vec![2, 2]);
+        assert_eq!(out.shape().dims(), vec![2, 2]);
         // Row 0 gathered indices [2,0] -> [0.2, 0.0]
         assert!((out.get(&[0, 0]) - 0.2).abs() < 1e-6);
         assert!((out.get(&[0, 1]) - 0.0).abs() < 1e-6);
@@ -227,11 +227,11 @@ mod tests {
         let mut y = x.gather(1, &[1, 1, 0, 2], &[2, 2]);
         // Upstream gradient defaults to ones in our engine
         y.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // Expected grad counts per input element:
         // For row 0: indices [1,1] -> input[0,1] gets +2
         // For row 1: indices [0,2] -> input[1,0] gets +1, input[1,2] gets +1
-        assert_eq!(gx.shape().dims, vec![2, 3]);
+        assert_eq!(gx.shape().dims(), vec![2, 3]);
         // Row 0
         assert!((gx.get(&[0, 0]) - 0.0).abs() < 1e-6);
         assert!((gx.get(&[0, 1]) - 2.0).abs() < 1e-6);

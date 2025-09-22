@@ -29,7 +29,7 @@ impl TensorValidator {
         let mut our_loss = our_result.sum();
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(g) => g,
             None => {
                 return ComparisonResult::failure(
@@ -149,7 +149,7 @@ impl TensorValidator {
         let mut our_loss = our_result.sum();
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(g) => g,
             None => {
                 return ComparisonResult::failure(
@@ -330,7 +330,7 @@ mod tests {
                 our_loss.backward(None);
 
                 assert!(
-                    our_source.grad_by_value().is_some(),
+                    our_source.grad_owned().is_some(),
                     "Our slice view gradients should work now!"
                 );
                 println!("✓ Our slice view implementation produces gradients correctly");
@@ -362,7 +362,7 @@ mod tests {
                 our_loss.backward(None);
 
                 assert!(
-                    our_source.grad_by_value().is_some(),
+                    our_source.grad_owned().is_some(),
                     "Our strided slice view gradients should work now!"
                 );
                 println!("✓ Our strided slice view implementation produces gradients correctly");

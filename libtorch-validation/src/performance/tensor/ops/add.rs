@@ -58,42 +58,34 @@ impl AddPerformanceTester {
 
     /// Test tensor + tensor addition performance
     pub fn test_add_tensor(&mut self, shape: &[usize]) -> PerformanceResult {
+        let a = create_test_tensor(shape, TestPattern::Random);
+        let b = create_test_tensor(shape, TestPattern::Sequential);
+        let a_data = create_data_with_pattern(shape, TestPattern::Random);
+        let b_data = create_data_with_pattern(shape, TestPattern::Sequential);
+        let a_torch =
+            LibTorchTensor::from_data(&a_data, shape).expect("Failed to create LibTorch tensor A");
+        let b_torch =
+            LibTorchTensor::from_data(&b_data, shape).expect("Failed to create LibTorch tensor B");
         self.tester.benchmark_operation(
             "add_tensor",
             shape,
-            || {
-                let a = create_test_tensor(shape, TestPattern::Random);
-                let b = create_test_tensor(shape, TestPattern::Sequential);
-                a.add_tensor(&b)
-            },
-            || {
-                let a_data = create_data_with_pattern(shape, TestPattern::Random);
-                let b_data = create_data_with_pattern(shape, TestPattern::Sequential);
-                let a = LibTorchTensor::from_data(&a_data, shape)
-                    .expect("Failed to create LibTorch tensor A");
-                let b = LibTorchTensor::from_data(&b_data, shape)
-                    .expect("Failed to create LibTorch tensor B");
-                a.add_tensor(&b)
-            },
+            || a.add_tensor(&b),
+            || a_torch.add_tensor(&b_torch),
         )
     }
 
     /// Test tensor + scalar addition performance
     pub fn test_add_scalar(&mut self, shape: &[usize], scalar: f32) -> PerformanceResult {
+        let a = create_test_tensor(shape, TestPattern::Random);
+        let a_data = create_data_with_pattern(shape, TestPattern::Random);
+        let a_torch =
+            LibTorchTensor::from_data(&a_data, shape).expect("Failed to create LibTorch tensor");
         self.tester.benchmark_with_params(
             "add_scalar",
             shape,
             &[("scalar", &scalar.to_string())],
-            || {
-                let a = create_test_tensor(shape, TestPattern::Random);
-                a.add_scalar(scalar)
-            },
-            || {
-                let a_data = create_data_with_pattern(shape, TestPattern::Random);
-                let a = LibTorchTensor::from_data(&a_data, shape)
-                    .expect("Failed to create LibTorch tensor");
-                a.add_scalar(scalar)
-            },
+            || a.add_scalar(scalar),
+            || a_torch.add_scalar(scalar),
         )
     }
 

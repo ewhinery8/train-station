@@ -28,11 +28,11 @@ impl TensorValidator {
         let mut our_result = our_a.add_tensor(&our_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_a.grad_by_value() {
+        let our_grad_a = match our_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_b.grad_by_value() {
+        let our_grad_b = match our_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -105,18 +105,18 @@ impl TensorValidator {
         };
 
         // Compare shapes first
-        if our_grad_a.shape().dims != torch_grad_a.shape() {
+        if our_grad_a.shape().dims() != torch_grad_a.shape() {
             return ComparisonResult::failure(format!(
                 "Gradient A shape mismatch: our {:?} vs torch {:?}",
-                our_grad_a.shape().dims,
+                our_grad_a.shape().dims(),
                 torch_grad_a.shape()
             ));
         }
 
-        if our_grad_b.shape().dims != torch_grad_b.shape() {
+        if our_grad_b.shape().dims() != torch_grad_b.shape() {
             return ComparisonResult::failure(format!(
                 "Gradient B shape mismatch: our {:?} vs torch {:?}",
-                our_grad_b.shape().dims,
+                our_grad_b.shape().dims(),
                 torch_grad_b.shape()
             ));
         }
@@ -169,11 +169,11 @@ impl TensorValidator {
         let mut our_result = our_a.mul_tensor(&our_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_a.grad_by_value() {
+        let our_grad_a = match our_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_b.grad_by_value() {
+        let our_grad_b = match our_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -311,25 +311,25 @@ impl TensorValidator {
         let mut loss = linear_result.sum();
         loss.backward(None);
 
-        let _our_input_grad = match our_input.grad_by_value() {
+        let _our_input_grad = match our_input.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our input has no gradient".to_string()),
         };
-        let _our_weight_grad = match our_weight.grad_by_value() {
+        let _our_weight_grad = match our_weight.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our weight has no gradient".to_string()),
         };
-        let our_bias_grad = match our_bias.grad_by_value() {
+        let our_bias_grad = match our_bias.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our bias has no gradient".to_string()),
         };
 
         // Check bias gradient shape (most important for broadcasting)
-        if our_bias_grad.shape().dims != bias_shape {
+        if our_bias_grad.shape().dims() != bias_shape {
             return ComparisonResult::failure(format!(
                 "Bias gradient shape mismatch: expected {:?}, got {:?}",
                 bias_shape,
-                our_bias_grad.shape().dims
+                our_bias_grad.shape().dims()
             ));
         }
 
@@ -369,11 +369,11 @@ impl TensorValidator {
         let mut our_result = our_a.sub_tensor(&our_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_a.grad_by_value() {
+        let our_grad_a = match our_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_b.grad_by_value() {
+        let our_grad_b = match our_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -446,18 +446,18 @@ impl TensorValidator {
         };
 
         // Compare shapes first
-        if our_grad_a.shape().dims != torch_grad_a.shape() {
+        if our_grad_a.shape().dims() != torch_grad_a.shape() {
             return ComparisonResult::failure(format!(
                 "Gradient A shape mismatch: our {:?} vs torch {:?}",
-                our_grad_a.shape().dims,
+                our_grad_a.shape().dims(),
                 torch_grad_a.shape()
             ));
         }
 
-        if our_grad_b.shape().dims != torch_grad_b.shape() {
+        if our_grad_b.shape().dims() != torch_grad_b.shape() {
             return ComparisonResult::failure(format!(
                 "Gradient B shape mismatch: our {:?} vs torch {:?}",
-                our_grad_b.shape().dims,
+                our_grad_b.shape().dims(),
                 torch_grad_b.shape()
             ));
         }
@@ -510,11 +510,11 @@ impl TensorValidator {
         let mut our_result = our_a.div_tensor(&our_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_a.grad_by_value() {
+        let our_grad_a = match our_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_b.grad_by_value() {
+        let our_grad_b = match our_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };

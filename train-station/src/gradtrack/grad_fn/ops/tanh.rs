@@ -2,7 +2,7 @@ use crate::tensor::core::Tensor;
 
 // Backward for tanh: d/dx tanh(x) = 1 - tanh(x)^2; using saved_output
 pub(crate) fn apply_tanh(saved_output: &Tensor, grad_output: &Tensor) -> Vec<Option<Tensor>> {
-    let mut grad_input = Tensor::zeros(saved_output.shape().dims.clone());
+    let mut grad_input = Tensor::zeros(saved_output.shape().dims().to_vec());
     unsafe {
         let y = saved_output.as_ptr();
         let go = grad_output.as_ptr();

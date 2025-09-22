@@ -27,7 +27,7 @@
 //! // Squeeze all size-1 dimensions
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![1, 3, 1]).unwrap();
 //! let squeezed = tensor.squeeze(None);
-//! assert_eq!(squeezed.shape().dims, vec![3]);
+//! assert_eq!(squeezed.shape().dims(), vec![3]);
 //! ```
 //!
 //! ```
@@ -36,7 +36,7 @@
 //! // Squeeze specific dimension
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![1, 3, 1]).unwrap();
 //! let squeezed = tensor.squeeze(Some(0));
-//! assert_eq!(squeezed.shape().dims, vec![3, 1]);
+//! assert_eq!(squeezed.shape().dims(), vec![3, 1]);
 //! ```
 //!
 //! # Gradient Tracking
@@ -85,7 +85,7 @@ impl Tensor {
     /// // Squeeze all size-1 dimensions
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![1, 3, 1]).unwrap();
     /// let squeezed = tensor.squeeze(None);
-    /// assert_eq!(squeezed.shape().dims, vec![3]);
+    /// assert_eq!(squeezed.shape().dims(), vec![3]);
     /// assert_eq!(squeezed.get(&[0]), 1.0);
     /// assert_eq!(squeezed.get(&[1]), 2.0);
     /// assert_eq!(squeezed.get(&[2]), 3.0);
@@ -97,7 +97,7 @@ impl Tensor {
     /// // Squeeze specific dimension
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![1, 3, 1]).unwrap();
     /// let squeezed = tensor.squeeze(Some(0));
-    /// assert_eq!(squeezed.shape().dims, vec![3, 1]);
+    /// assert_eq!(squeezed.shape().dims(), vec![3, 1]);
     /// assert_eq!(squeezed.get(&[0, 0]), 1.0);
     /// assert_eq!(squeezed.get(&[1, 0]), 2.0);
     /// assert_eq!(squeezed.get(&[2, 0]), 3.0);
@@ -110,7 +110,7 @@ impl Tensor {
     /// let data = vec![1.0, 2.0, 3.0, 4.0];
     /// let tensor = Tensor::from_slice(&data, vec![1, 2, 1, 2]).unwrap();
     /// let squeezed = tensor.squeeze(None);
-    /// assert_eq!(squeezed.shape().dims, vec![2, 2]);
+    /// assert_eq!(squeezed.shape().dims(), vec![2, 2]);
     /// assert_eq!(squeezed.size(), 4);
     /// assert_eq!(squeezed.get(&[0, 0]), data[0]);
     /// assert_eq!(squeezed.get(&[0, 1]), data[1]);
@@ -124,7 +124,7 @@ impl Tensor {
     /// // Handle edge case: all dimensions are size 1
     /// let tensor = Tensor::from_slice(&[5.0], vec![1, 1, 1]).unwrap();
     /// let squeezed = tensor.squeeze(None);
-    /// assert_eq!(squeezed.shape().dims, vec![1]); // Not empty!
+    /// assert_eq!(squeezed.shape().dims(), vec![1]); // Not empty!
     /// assert_eq!(squeezed.get(&[0]), 5.0);
     /// ```
     ///
@@ -137,7 +137,7 @@ impl Tensor {
     ///
     /// let squeezed = tensor.squeeze(None);
     /// assert!(squeezed.requires_grad());
-    /// assert_eq!(squeezed.shape().dims, vec![3]);
+    /// assert_eq!(squeezed.shape().dims(), vec![3]);
     /// ```
     ///
     /// ```
@@ -146,10 +146,10 @@ impl Tensor {
     /// // Squeeze and unsqueeze roundtrip
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let unsqueezed = tensor.unsqueeze(0);
-    /// assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+    /// assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
     ///
     /// let squeezed = unsqueezed.squeeze(Some(0));
-    /// assert_eq!(squeezed.shape().dims, vec![3]);
+    /// assert_eq!(squeezed.shape().dims(), vec![3]);
     /// assert_eq!(squeezed.get(&[0]), 1.0);
     /// assert_eq!(squeezed.get(&[2]), 3.0);
     /// ```
@@ -189,21 +189,21 @@ impl Tensor {
             // Squeeze specific dimension
             assert!(d < self.shape().rank(), "Dimension {} out of bounds", d);
             assert_eq!(
-                self.shape().dims[d],
+                self.shape().dims()[d],
                 1,
                 "Cannot squeeze dimension {} with size {}",
                 d,
-                self.shape().dims[d]
+                self.shape().dims()[d]
             );
 
-            for (i, &size) in self.shape().dims.iter().enumerate() {
+            for (i, &size) in self.shape().dims().iter().enumerate() {
                 if i != d {
                     new_dims.push(size);
                 }
             }
         } else {
             // Squeeze all size-1 dimensions
-            for &size in &self.shape().dims {
+            for &size in self.shape().dims() {
                 if size != 1 {
                     new_dims.push(size);
                 }
@@ -231,11 +231,11 @@ mod tests {
 
         // Squeeze all size-1 dimensions
         let squeezed = tensor.squeeze(None);
-        assert_eq!(squeezed.shape().dims, vec![3]);
+        assert_eq!(squeezed.shape().dims(), vec![3]);
 
         // Squeeze specific dimension
         let squeezed = tensor.squeeze(Some(0));
-        assert_eq!(squeezed.shape().dims, vec![3, 1]);
+        assert_eq!(squeezed.shape().dims(), vec![3, 1]);
     }
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![1, 2, 1, 2]).unwrap();
         let squeezed = tensor.squeeze(None);
 
-        assert_eq!(squeezed.shape().dims, vec![2, 2]);
+        assert_eq!(squeezed.shape().dims(), vec![2, 2]);
         assert_eq!(squeezed.size(), 4);
 
         // Verify data is preserved
@@ -260,7 +260,7 @@ mod tests {
         let squeezed = tensor.squeeze(None);
 
         // When all dimensions are 1, result should be [1] not []
-        assert_eq!(squeezed.shape().dims, vec![1]);
+        assert_eq!(squeezed.shape().dims(), vec![1]);
         assert_eq!(squeezed.get(&[0]), 5.0);
     }
 
@@ -269,7 +269,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![1, 2, 2]).unwrap();
 
         let squeezed = tensor.squeeze(Some(0));
-        assert_eq!(squeezed.shape().dims, vec![2, 2]);
+        assert_eq!(squeezed.shape().dims(), vec![2, 2]);
     }
 
     #[test]
@@ -292,10 +292,10 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
 
         let unsqueezed = tensor.unsqueeze(0);
-        assert_eq!(unsqueezed.shape().dims, vec![1, 3]);
+        assert_eq!(unsqueezed.shape().dims(), vec![1, 3]);
 
         let squeezed = unsqueezed.squeeze(Some(0));
-        assert_eq!(squeezed.shape().dims, vec![3]);
+        assert_eq!(squeezed.shape().dims(), vec![3]);
 
         // Verify data integrity
         assert_eq!(squeezed.get(&[0]), 1.0);

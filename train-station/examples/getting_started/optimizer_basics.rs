@@ -54,12 +54,12 @@ fn demonstrate_basic_optimizer_setup() {
     println!("Created parameters:");
     println!(
         "  Weight: shape {:?}, requires_grad: {}",
-        weight.shape().dims,
+        weight.shape().dims(),
         weight.requires_grad()
     );
     println!(
         "  Bias: shape {:?}, requires_grad: {}",
-        bias.shape().dims,
+        bias.shape().dims(),
         bias.requires_grad()
     );
 
@@ -211,7 +211,7 @@ fn demonstrate_advanced_training() -> Result<(), Box<dyn std::error::Error>> {
         loss.backward(None);
 
         // Compute gradient norm before optimizer step
-        let gradient_norm = weight.grad_by_value().unwrap().norm();
+        let gradient_norm = weight.grad_owned().unwrap().norm();
 
         // Optimizer step
         optimizer.step(&mut [&mut weight, &mut bias]);

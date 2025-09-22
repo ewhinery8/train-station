@@ -75,7 +75,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -100,7 +100,7 @@ impl Tensor {
         if self.requires_grad() {
             out.set_requires_grad_internal(true);
             let grad_fn = GradFn::ReduceMean {
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 numel: self.size(),
             };
             out.set_grad_fn(grad_fn.clone());
@@ -144,7 +144,7 @@ impl Tensor {
     ///
     /// // Mean over columns (dim 1), keeping dimensions
     /// let mean_cols = tensor.mean_dims(&[1], true);
-    /// assert_eq!(mean_cols.shape().dims, vec![2, 1]);
+    /// assert_eq!(mean_cols.shape().dims(), vec![2, 1]);
     /// assert_eq!(mean_cols.get(&[0, 0]), 2.0); // (1+2+3)/3 = 2.0
     /// assert_eq!(mean_cols.get(&[1, 0]), 5.0); // (4+5+6)/3 = 5.0
     /// ```
@@ -156,7 +156,7 @@ impl Tensor {
     ///
     /// // Mean over rows (dim 0), removing dimensions
     /// let mean_rows = tensor.mean_dims(&[0], false);
-    /// assert_eq!(mean_rows.shape().dims, vec![3]);
+    /// assert_eq!(mean_rows.shape().dims(), vec![3]);
     /// assert_eq!(mean_rows.get(&[0]), 2.5); // (1+4)/2 = 2.5
     /// assert_eq!(mean_rows.get(&[1]), 3.5); // (2+5)/2 = 3.5
     /// assert_eq!(mean_rows.get(&[2]), 4.5); // (3+6)/2 = 4.5
@@ -169,7 +169,7 @@ impl Tensor {
     ///
     /// // Mean over multiple dimensions
     /// let mean_all = tensor.mean_dims(&[0, 1], false);
-    /// assert_eq!(mean_all.shape().dims, vec![1]);
+    /// assert_eq!(mean_all.shape().dims(), vec![1]);
     /// assert_eq!(mean_all.get(&[0]), 2.5); // (1+2+3+4)/4 = 2.5
     /// ```
     ///
@@ -202,7 +202,7 @@ impl Tensor {
 
         // Compute sum over dims first, then divide by product of reduced sizes
         let sum = self.sum_dims(dims, keepdim);
-        let factor: usize = dims.iter().map(|&d| self.shape().dims[d]).product();
+        let factor: usize = dims.iter().map(|&d| self.shape().dims()[d]).product();
         let scale = if factor > 0 {
             1.0f32 / (factor as f32)
         } else {
@@ -220,7 +220,7 @@ impl Tensor {
             reduced.dedup();
             let grad_fn = GradFn::ReduceMeanDims {
                 dims: reduced,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 keepdim,
             };
             reg.set_grad_fn(grad_fn.clone());
@@ -245,7 +245,7 @@ mod tests {
             }
         }
         let m = x.mean();
-        assert_eq!(m.shape().dims, vec![1]);
+        assert_eq!(m.shape().dims(), vec![1]);
         unsafe {
             assert!((*m.as_ptr() - (0.0 + 1.0 + 2.0 + 3.0 + 4.0 + 5.0) / 6.0).abs() < 1e-6);
         }
@@ -258,7 +258,7 @@ mod tests {
             .with_requires_grad();
         let mut m = x.mean();
         m.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         for i in 0..4 {
             unsafe {
                 assert_eq!(*gx.as_ptr().add(i), 0.25);
@@ -293,14 +293,14 @@ mod tests {
 
         // Mean along dim 0 of transposed tensor
         let mean_dim0 = x_t.mean_dims(&[0], false);
-        assert_eq!(mean_dim0.shape().dims, vec![2]);
+        assert_eq!(mean_dim0.shape().dims(), vec![2]);
         // Should be [(1+2+3)/3, (4+5+6)/3] = [2.0, 5.0]
         assert!((mean_dim0.get(&[0]) - 2.0).abs() < 1e-6);
         assert!((mean_dim0.get(&[1]) - 5.0).abs() < 1e-6);
 
         // Mean along dim 1 of transposed tensor
         let mean_dim1 = x_t.mean_dims(&[1], false);
-        assert_eq!(mean_dim1.shape().dims, vec![3]);
+        assert_eq!(mean_dim1.shape().dims(), vec![3]);
         // Should be [(1+4)/2, (2+5)/2, (3+6)/2] = [2.5, 3.5, 4.5]
         assert!((mean_dim1.get(&[0]) - 2.5).abs() < 1e-6);
         assert!((mean_dim1.get(&[1]) - 3.5).abs() < 1e-6);

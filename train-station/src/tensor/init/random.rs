@@ -32,7 +32,7 @@
 //! // Create a 2x3 tensor with random normal values
 //! let tensor = Tensor::randn(vec![2, 3], None);
 //! assert_eq!(tensor.size(), 6);
-//! assert_eq!(tensor.shape().dims, vec![2, 3]);
+//! assert_eq!(tensor.shape().dims(), vec![2, 3]);
 //!
 //! // Verify random values are generated
 //! let first_value = tensor.get(&[0, 0]);
@@ -101,7 +101,7 @@
 //! // Handle empty tensors gracefully
 //! let tensor = Tensor::randn(vec![0], Some(42));
 //! assert_eq!(tensor.size(), 0);
-//! assert_eq!(tensor.shape().dims, vec![0]);
+//! assert_eq!(tensor.shape().dims(), vec![0]);
 //! ```
 //!
 //! # Design Principles
@@ -154,7 +154,7 @@ impl Tensor {
     /// // Create a 2x3 tensor with random normal values
     /// let tensor = Tensor::randn(vec![2, 3], None);
     /// assert_eq!(tensor.size(), 6);
-    /// assert_eq!(tensor.shape().dims, vec![2, 3]);
+    /// assert_eq!(tensor.shape().dims(), vec![2, 3]);
     ///
     /// // Verify random values are generated
     /// let first_value = tensor.get(&[0, 0]);
@@ -213,7 +213,7 @@ impl Tensor {
     /// // Handle empty tensors gracefully
     /// let tensor = Tensor::randn(vec![0], Some(42));
     /// assert_eq!(tensor.size(), 0);
-    /// assert_eq!(tensor.shape().dims, vec![0]);
+    /// assert_eq!(tensor.shape().dims(), vec![0]);
     /// ```
     ///
     /// # Implementation Details
@@ -270,7 +270,7 @@ impl Tensor {
     /// across different CPU architectures.
     #[track_caller]
     pub fn fill_randn(&mut self, seed: Option<u64>) {
-        if self.shape().size == 0 {
+        if self.shape().size() == 0 {
             return;
         }
 
@@ -341,7 +341,7 @@ impl Tensor {
     #[inline]
     unsafe fn fill_randn_simd_avx2(&self, ptr: *const f32, rng: &mut XorShiftRng) {
         let mut_ptr = ptr as *mut f32;
-        let size = self.shape().size;
+        let size = self.shape().size();
         let simd_count = size / 8; // Process 8 elements per iteration
         let mut offset = 0;
 
@@ -402,7 +402,7 @@ impl Tensor {
     #[inline]
     unsafe fn fill_randn_scalar(&self, ptr: *const f32, rng: &mut XorShiftRng) {
         let mut_ptr = ptr as *mut f32;
-        let size = self.shape().size;
+        let size = self.shape().size();
         let unroll_count = size / 4;
         let mut offset = 0;
 
@@ -625,7 +625,7 @@ mod tests {
     fn test_randn_basic() {
         let tensor = Tensor::randn(vec![2, 3], Some(42));
         assert_eq!(tensor.size(), 6);
-        assert_eq!(tensor.shape().dims, vec![2, 3]);
+        assert_eq!(tensor.shape().dims(), vec![2, 3]);
 
         // With fixed seed, should be reproducible
         let tensor2 = Tensor::randn(vec![2, 3], Some(42));
@@ -675,7 +675,7 @@ mod tests {
     fn test_randn_no_seed() {
         let tensor = Tensor::randn(vec![10], None);
         assert_eq!(tensor.size(), 10);
-        assert_eq!(tensor.shape().dims, vec![10]);
+        assert_eq!(tensor.shape().dims(), vec![10]);
 
         // Should not be all zeros
         let mut has_non_zero = false;
@@ -694,7 +694,7 @@ mod tests {
     fn test_randn_zero_sized() {
         let tensor = Tensor::randn(vec![0], Some(42));
         assert_eq!(tensor.size(), 0);
-        assert_eq!(tensor.shape().dims, vec![0]);
+        assert_eq!(tensor.shape().dims(), vec![0]);
     }
 
     #[test]

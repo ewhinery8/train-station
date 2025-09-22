@@ -59,7 +59,7 @@ impl TensorValidator {
         y.backward(None);
         let our_grads: Vec<Tensor> = ours
             .iter()
-            .map(|t| t.grad_by_value().expect("Our grad missing"))
+            .map(|t| t.grad_owned().expect("Our grad missing"))
             .collect();
 
         let torches: Vec<LibTorchTensor> = (0..count)

@@ -6,7 +6,7 @@ pub(crate) fn apply_cat(
     input_shapes: &[Vec<usize>],
     grad_output: &Tensor,
 ) -> Vec<Option<Tensor>> {
-    let out_dims = grad_output.shape().dims.to_vec();
+    let out_dims = grad_output.shape().dims().to_vec();
     let inner: usize = out_dims[dim + 1..].iter().product();
     let outer: usize = out_dims[..dim].iter().product();
 

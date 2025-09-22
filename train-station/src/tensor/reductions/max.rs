@@ -57,7 +57,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -89,7 +89,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceMax {
                 saved_output: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -123,13 +123,13 @@ impl Tensor {
     ///
     /// // Max over columns (dim 1), keeping dimensions
     /// let max_cols = tensor.max_dims(&[1], true);
-    /// assert_eq!(max_cols.shape().dims, vec![2, 1]);
+    /// assert_eq!(max_cols.shape().dims(), vec![2, 1]);
     /// assert_eq!(max_cols.get(&[0, 0]), 3.0);
     /// assert_eq!(max_cols.get(&[1, 0]), 6.0);
     ///
     /// // Max over rows (dim 0), removing dimensions
     /// let max_rows = tensor.max_dims(&[0], false);
-    /// assert_eq!(max_rows.shape().dims, vec![3]);
+    /// assert_eq!(max_rows.shape().dims(), vec![3]);
     /// assert_eq!(max_rows.get(&[0]), 4.0);
     /// assert_eq!(max_rows.get(&[1]), 5.0);
     /// assert_eq!(max_rows.get(&[2]), 6.0);
@@ -159,7 +159,7 @@ impl Tensor {
             );
         }
 
-        let mut out_dims = self.shape().dims.clone();
+        let mut out_dims = self.shape().dims().to_vec();
         let mut reduced: Vec<usize> = dims.to_vec();
         reduced.sort_unstable();
         reduced.dedup();
@@ -174,7 +174,7 @@ impl Tensor {
         }
         let mut out = Tensor::zeros(out_dims.clone());
 
-        let in_shape = self.shape().dims.clone();
+        let in_shape = self.shape().dims().to_vec();
         let out_rank = out.shape().rank();
         let mut in_coords = vec![0usize; rank];
         unsafe {
@@ -224,7 +224,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceMaxDims {
                 dims: reduced,
                 keepdim,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 saved_output: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
             };
@@ -250,7 +250,7 @@ mod tests {
             }
         }
         let m = x.max();
-        assert_eq!(m.shape().dims, vec![1]);
+        assert_eq!(m.shape().dims(), vec![1]);
         unsafe {
             assert_eq!(*m.as_ptr(), 2.0);
         }
@@ -265,7 +265,7 @@ mod tests {
             }
         }
         let m = x.max_dims(&[1], true);
-        assert_eq!(m.shape().dims, vec![2, 1]);
+        assert_eq!(m.shape().dims(), vec![2, 1]);
         assert_eq!(m.get(&[0, 0]), -1.0);
         assert_eq!(m.get(&[1, 0]), 2.0);
     }
@@ -297,14 +297,14 @@ mod tests {
 
         // Max along dim 0 of transposed tensor
         let max_dim0 = x_t.max_dims(&[0], false);
-        assert_eq!(max_dim0.shape().dims, vec![2]);
+        assert_eq!(max_dim0.shape().dims(), vec![2]);
         // Should be [max(1,2,3), max(4,5,6)] = [3, 6]
         assert_eq!(max_dim0.get(&[0]), 3.0);
         assert_eq!(max_dim0.get(&[1]), 6.0);
 
         // Max along dim 1 of transposed tensor
         let max_dim1 = x_t.max_dims(&[1], false);
-        assert_eq!(max_dim1.shape().dims, vec![3]);
+        assert_eq!(max_dim1.shape().dims(), vec![3]);
         // Should be [max(1,4), max(2,5), max(3,6)] = [4, 5, 6]
         assert_eq!(max_dim1.get(&[0]), 4.0);
         assert_eq!(max_dim1.get(&[1]), 5.0);

@@ -90,9 +90,7 @@ mod tests {
         let mut our_result = our_view.mul_scalar(3.0);
         our_result.backward(None);
 
-        let our_grad = our_tensor
-            .grad_by_value()
-            .expect("Our gradient should exist");
+        let our_grad = our_tensor.grad_owned().expect("Our gradient should exist");
 
         // LibTorch reference with gradients
         let torch_tensor = LibTorchTensor::from_data(&data, &shape)
@@ -165,8 +163,8 @@ mod tests {
         loss.backward(None);
 
         // Check that gradients were accumulated correctly
-        assert!(our_tensor.grad_by_value().is_some());
-        let grad = our_tensor.grad_by_value().unwrap();
+        assert!(our_tensor.grad_owned().is_some());
+        let grad = our_tensor.grad_owned().unwrap();
         // Gradients should be at indices 1 and 3 (with step=2)
         assert_eq!(grad.data(), &[0.0, 3.0, 0.0, 3.0, 0.0]);
 
@@ -204,8 +202,8 @@ mod tests {
         loss.backward(None);
 
         // Check that gradients flowed all the way back to the original tensor
-        assert!(our_tensor.grad_by_value().is_some());
-        let grad = our_tensor.grad_by_value().unwrap();
+        assert!(our_tensor.grad_owned().is_some());
+        let grad = our_tensor.grad_owned().unwrap();
         // Gradient should be at index 2 (our_slice[1] maps to our_tensor[2])
         assert_eq!(grad.data(), &[0.0, 0.0, 5.0, 0.0, 0.0, 0.0]);
 
@@ -247,9 +245,7 @@ mod tests {
             .add_tensor(&our_result2);
         our_sum.backward(None);
 
-        let our_grad = our_tensor
-            .grad_by_value()
-            .expect("Our gradient should exist");
+        let our_grad = our_tensor.grad_owned().expect("Our gradient should exist");
 
         // Verify that gradients are computed correctly for accessed elements
         // Current implementation may have shape limitations, but values should be correct

@@ -66,7 +66,7 @@ impl Tensor {
     /// for non-positive real numbers.
     #[inline]
     pub(crate) fn log_optimized(&self) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;
@@ -120,7 +120,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 2.71828, 7.38906], vec![3]).unwrap();
     /// let b = a.log();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 0.0); // ln(1) = 0
     /// assert!((b.get(&[1]) - 1.0).abs() < 1e-5); // ln(e) ≈ 1
     /// assert!((b.get(&[2]) - 2.0).abs() < 1e-5); // ln(e^2) ≈ 2
@@ -133,7 +133,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[4.0, 8.0, 16.0], vec![3]).unwrap();
     /// let b = a.log();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert!((b.get(&[0]) - 1.38629).abs() < 1e-5); // ln(4) ≈ 1.38629
     /// assert!((b.get(&[1]) - 2.07944).abs() < 1e-5); // ln(8) ≈ 2.07944
     /// assert!((b.get(&[2]) - 2.77259).abs() < 1e-5); // ln(16) ≈ 2.77259
@@ -189,7 +189,7 @@ mod tests {
             .with_requires_grad();
         let mut y = x.log();
         y.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // d/dx log(x) = 1/x
         assert!((gx.get(&[0]) - 1.0).abs() < 1e-6);
         assert!((gx.get(&[1]) - 0.5).abs() < 1e-6);

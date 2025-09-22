@@ -77,7 +77,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let b = a.softmax(0);
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     ///
     /// // Verify probabilities sum to 1
     /// let sum = b.get(&[0]) + b.get(&[1]) + b.get(&[2]);
@@ -95,7 +95,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let b = a.softmax(0); // Softmax along first dimension
-    /// assert_eq!(b.shape().dims, vec![2, 2]);
+    /// assert_eq!(b.shape().dims(), vec![2, 2]);
     ///
     /// // Each column should sum to 1
     /// let col1_sum = b.get(&[0, 0]) + b.get(&[1, 0]);
@@ -116,7 +116,7 @@ impl Tensor {
             dim,
             rank
         );
-        let dims = self.shape().dims.clone();
+        let dims = self.shape().dims().to_vec();
         let reduce = dims[dim];
         assert!(reduce > 0, "cannot softmax over empty dimension");
 

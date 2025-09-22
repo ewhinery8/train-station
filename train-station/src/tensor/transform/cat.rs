@@ -26,21 +26,18 @@
 //! let a = Tensor::from_slice(&[1.0, 2.0], vec![2]).unwrap();
 //! let b = Tensor::from_slice(&[3.0, 4.0], vec![2]).unwrap();
 //! let result = Tensor::cat(&[a, b], 0);
-//! assert_eq!(result.shape().dims, vec![4]);
+//! assert_eq!(result.shape().dims(), vec![4]);
 //!
 //! // Concatenate 2D tensors along different dimensions
 //! let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 //! let y = Tensor::from_slice(&[5.0, 6.0], vec![2, 1]).unwrap();
 //! let result = Tensor::cat(&[x, y], 1);
-//! assert_eq!(result.shape().dims, vec![2, 3]);
+//! assert_eq!(result.shape().dims(), vec![2, 3]);
 //! ```
 
 use crate::gradtrack::{GradEngine, GradFn};
 use crate::tensor::core::Tensor;
-
-// SIMD optimizations for performance-critical operations
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
+use crate::tensor::iterator::collect::optimized_copy;
 
 impl Tensor {
     /// Concatenate tensors along a given dimension
@@ -75,7 +72,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&[1.0, 2.0], vec![2]).unwrap();
     /// let b = Tensor::from_slice(&[3.0, 4.0], vec![2]).unwrap();
     /// let result = Tensor::cat(&[a, b], 0);
-    /// assert_eq!(result.shape().dims, vec![4]);
+    /// assert_eq!(result.shape().dims(), vec![4]);
     /// assert_eq!(result.get(&[0]), 1.0);
     /// assert_eq!(result.get(&[1]), 2.0);
     /// assert_eq!(result.get(&[2]), 3.0);
@@ -89,7 +86,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let b = Tensor::from_slice(&[5.0, 6.0], vec![2, 1]).unwrap();
     /// let result = Tensor::cat(&[a, b], 1);
-    /// assert_eq!(result.shape().dims, vec![2, 3]);
+    /// assert_eq!(result.shape().dims(), vec![2, 3]);
     /// assert_eq!(result.get(&[0, 0]), 1.0);
     /// assert_eq!(result.get(&[0, 1]), 2.0);
     /// assert_eq!(result.get(&[0, 2]), 5.0);
@@ -120,10 +117,10 @@ impl Tensor {
         );
 
         // Validate shapes and compute output dims
-        let base_shape = tensors[0].shape().dims.clone();
+        let base_shape = tensors[0].shape().dims();
         for t in tensors.iter() {
             assert_eq!(t.shape().rank(), rank, "All tensors must have same rank");
-            for (i, (&a, &b)) in base_shape.iter().zip(t.shape().dims.iter()).enumerate() {
+            for (i, (&a, &b)) in base_shape.iter().zip(t.shape().dims().iter()).enumerate() {
                 if i != dim {
                     assert_eq!(
                         a, b,
@@ -134,14 +131,14 @@ impl Tensor {
             }
         }
 
-        let mut out_dims = base_shape.clone();
+        let mut out_dims = base_shape.to_vec();
         let mut concat_len = 0usize;
         for t in tensors.iter() {
-            concat_len += t.shape().dims[dim];
+            concat_len += t.shape().dims()[dim];
         }
         out_dims[dim] = concat_len;
 
-        let mut output = Tensor::new(out_dims.clone());
+        let mut output = Tensor::new(out_dims.to_vec());
 
         // Calculate block sizes for contiguous copy
         let inner: usize = out_dims[dim + 1..].iter().product();
@@ -157,7 +154,7 @@ impl Tensor {
         let mut temp_contiguous: Vec<Tensor> = Vec::new();
         let mut sources: Vec<SourceInfo> = Vec::with_capacity(tensors.len());
         for t in tensors.iter() {
-            let len_d = t.shape().dims[dim];
+            let len_d = t.shape().dims()[dim];
             if len_d == 0 {
                 // Skip empty tensors; keep alignment in running count during copy
                 sources.push(SourceInfo {
@@ -203,7 +200,7 @@ impl Tensor {
                     let dst_base = outer_idx * (concat_len * inner) + running * inner;
                     let dst_cur = dst_ptr.add(dst_base);
 
-                    optimized_block_copy(src_ptr, dst_cur, copy_elems);
+                    optimized_copy(src_ptr, dst_cur, copy_elems);
                     running += len_d;
                 }
             }
@@ -219,8 +216,8 @@ impl Tensor {
             for t in tensors.iter() {
                 if t.requires_grad() {
                     input_ids.push(t.id());
-                    grad_input_sizes.push(t.shape().dims[dim]);
-                    grad_input_shapes.push(t.shape().dims.clone());
+                    grad_input_sizes.push(t.shape().dims()[dim]);
+                    grad_input_shapes.push(t.shape().dims().to_vec());
                 }
             }
             let grad_fn = GradFn::Cat {
@@ -236,166 +233,7 @@ impl Tensor {
     }
 }
 
-/// Optimized block copy with SIMD acceleration for large blocks
-///
-/// Performs efficient memory copying with automatic SIMD optimization when
-/// available. Uses AVX2 instructions for large blocks and falls back to
-/// unrolled scalar operations for smaller blocks or when SIMD is not available.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * `src` points to valid memory with at least `count` f32 elements
-/// * `dst` points to valid writable memory with at least `count` f32 elements
-/// * The source and destination regions do not overlap
-/// * The pointers are properly aligned for the target architecture
-///
-/// # Performance
-///
-/// * **Large blocks (≥64 elements)**: Uses AVX2 SIMD instructions when available
-/// * **Medium blocks (32-63 elements)**: Uses unrolled scalar operations
-/// * **Small blocks (<32 elements)**: Uses standard library copy
-#[inline]
-unsafe fn optimized_block_copy(src: *const f32, dst: *mut f32, count: usize) {
-    if count == 0 {
-        return;
-    }
-
-    // For small blocks, use standard copy
-    if count <= 32 {
-        std::ptr::copy_nonoverlapping(src, dst, count);
-        return;
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && count >= 64 {
-            simd_block_copy_avx2(src, dst, count);
-            return;
-        }
-    }
-
-    // Fallback to optimized scalar copy with unrolling
-    scalar_block_copy_unrolled(src, dst, count);
-}
-
-/// SIMD-optimized block copy using AVX2 instructions
-///
-/// Performs high-performance memory copying using AVX2 vector instructions.
-/// Processes 32 elements per iteration using 4 AVX2 vectors, with additional
-/// optimizations for remaining elements.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * AVX2 instructions are available on the target CPU
-/// * `src` points to valid memory with at least `count` f32 elements
-/// * `dst` points to valid writable memory with at least `count` f32 elements
-/// * The source and destination regions do not overlap
-/// * Pointers are properly aligned for AVX2 operations
-///
-/// # Performance
-///
-/// * **Main loop**: Processes 32 elements per iteration (4 AVX2 vectors)
-/// * **Remaining blocks**: Processes 8 elements per iteration for partial blocks
-/// * **Final elements**: Uses standard copy for remaining elements
-#[cfg(target_arch = "x86_64")]
-#[inline]
-#[target_feature(enable = "avx2")]
-unsafe fn simd_block_copy_avx2(src: *const f32, dst: *mut f32, count: usize) {
-    let simd_count = count / 32; // Process 32 elements per iteration (4x AVX2 vectors)
-    let mut offset = 0;
-
-    // Unrolled SIMD loop for maximum throughput
-    for _ in 0..simd_count {
-        // Process 4 AVX2 vectors (32 elements) per iteration
-        let vec1 = _mm256_loadu_ps(src.add(offset));
-        let vec2 = _mm256_loadu_ps(src.add(offset + 8));
-        let vec3 = _mm256_loadu_ps(src.add(offset + 16));
-        let vec4 = _mm256_loadu_ps(src.add(offset + 24));
-
-        _mm256_storeu_ps(dst.add(offset), vec1);
-        _mm256_storeu_ps(dst.add(offset + 8), vec2);
-        _mm256_storeu_ps(dst.add(offset + 16), vec3);
-        _mm256_storeu_ps(dst.add(offset + 24), vec4);
-
-        offset += 32;
-    }
-
-    // Handle remaining elements with 8-element SIMD blocks
-    let remaining_full_blocks = (count - offset) / 8;
-    for _ in 0..remaining_full_blocks {
-        let vec = _mm256_loadu_ps(src.add(offset));
-        _mm256_storeu_ps(dst.add(offset), vec);
-        offset += 8;
-    }
-
-    // Handle final elements
-    if offset < count {
-        std::ptr::copy_nonoverlapping(src.add(offset), dst.add(offset), count - offset);
-    }
-}
-
-/// Unrolled scalar block copy for optimal performance
-///
-/// Performs memory copying using unrolled scalar operations for better
-/// instruction-level parallelism and reduced loop overhead. Processes
-/// 8 elements per iteration in the main loop.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * `src` points to valid memory with at least `count` f32 elements
-/// * `dst` points to valid writable memory with at least `count` f32 elements
-/// * The source and destination regions do not overlap
-///
-/// # Performance
-///
-/// * **Main loop**: Processes 8 elements per iteration with manual unrolling
-/// * **Remaining elements**: Uses standard library copy for final elements
-/// * **Optimization**: Reduces loop overhead and improves instruction pipelining
-#[inline]
-unsafe fn scalar_block_copy_unrolled(src: *const f32, dst: *mut f32, count: usize) {
-    let unroll_factor = 8;
-    let unroll_count = count / unroll_factor;
-    let mut offset = 0;
-
-    // Unrolled scalar copy for better performance
-    for _ in 0..unroll_count {
-        *dst.add(offset) = *src.add(offset);
-        *dst.add(offset + 1) = *src.add(offset + 1);
-        *dst.add(offset + 2) = *src.add(offset + 2);
-        *dst.add(offset + 3) = *src.add(offset + 3);
-        *dst.add(offset + 4) = *src.add(offset + 4);
-        *dst.add(offset + 5) = *src.add(offset + 5);
-        *dst.add(offset + 6) = *src.add(offset + 6);
-        *dst.add(offset + 7) = *src.add(offset + 7);
-        offset += unroll_factor;
-    }
-
-    // Handle remaining elements
-    if offset < count {
-        std::ptr::copy_nonoverlapping(src.add(offset), dst.add(offset), count - offset);
-    }
-}
+// Reuse iterator::collect::optimized_copy for all contiguous block copies
 
 #[cfg(test)]
 mod tests {
@@ -406,7 +244,7 @@ mod tests {
         let a = Tensor::from_slice(&[1.0, 2.0], vec![2]).unwrap();
         let b = Tensor::from_slice(&[3.0], vec![1]).unwrap();
         let y = Tensor::cat(&[a, b], 0);
-        assert_eq!(y.shape().dims, vec![3]);
+        assert_eq!(y.shape().dims(), vec![3]);
         assert_eq!(y.get(&[0]), 1.0);
         assert_eq!(y.get(&[2]), 3.0);
     }
@@ -416,7 +254,7 @@ mod tests {
         let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
         let b = Tensor::from_slice(&[5.0, 6.0], vec![2, 1]).unwrap();
         let y = Tensor::cat(&[a, b], 1);
-        assert_eq!(y.shape().dims, vec![2, 3]);
+        assert_eq!(y.shape().dims(), vec![2, 3]);
         assert_eq!(y.get(&[0, 2]), 5.0);
         assert_eq!(y.get(&[1, 2]), 6.0);
     }

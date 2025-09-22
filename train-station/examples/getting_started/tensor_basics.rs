@@ -46,14 +46,14 @@ fn demonstrate_tensor_creation() {
     let zeros = Tensor::zeros(vec![2, 3]);
     println!(
         "Zeros tensor: shape {:?}, data: {:?}",
-        zeros.shape().dims,
+        zeros.shape().dims(),
         zeros.data()
     );
 
     let ones = Tensor::ones(vec![3, 2]);
     println!(
         "Ones tensor: shape {:?}, data: {:?}",
-        ones.shape().dims,
+        ones.shape().dims(),
         ones.data()
     );
 
@@ -62,7 +62,7 @@ fn demonstrate_tensor_creation() {
     let from_slice = Tensor::from_slice(&data, vec![2, 3]).unwrap();
     println!(
         "From slice: shape {:?}, data: {:?}",
-        from_slice.shape().dims,
+        from_slice.shape().dims(),
         from_slice.data()
     );
 
@@ -80,7 +80,7 @@ fn demonstrate_tensor_creation() {
     let random = Tensor::randn(vec![2, 2], Some(42));
     println!(
         "Random tensor: shape {:?}, data: {:?}",
-        random.shape().dims,
+        random.shape().dims(),
         random.data()
     );
 }
@@ -123,7 +123,7 @@ fn demonstrate_shape_operations() {
     let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     println!(
         "Original: shape {:?}, data: {:?}",
-        tensor.shape().dims,
+        tensor.shape().dims(),
         tensor.data()
     );
 
@@ -131,7 +131,7 @@ fn demonstrate_shape_operations() {
     let reshaped = tensor.view(vec![3, 2]);
     println!(
         "Reshaped to [3, 2]: shape {:?}, data: {:?}",
-        reshaped.shape().dims,
+        reshaped.shape().dims(),
         reshaped.data()
     );
 
@@ -139,7 +139,7 @@ fn demonstrate_shape_operations() {
     let tensor_2d = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     println!(
         "2D tensor: shape {:?}, data: {:?}",
-        tensor_2d.shape().dims,
+        tensor_2d.shape().dims(),
         tensor_2d.data()
     );
 
@@ -147,7 +147,7 @@ fn demonstrate_shape_operations() {
     let tensor_1d = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
     println!(
         "1D tensor: shape {:?}, data: {:?}",
-        tensor_1d.shape().dims,
+        tensor_1d.shape().dims(),
         tensor_1d.data()
     );
 }
@@ -182,7 +182,7 @@ fn demonstrate_utility_functions() {
     let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 
     // Basic properties
-    println!("Shape: {:?}", tensor.shape().dims);
+    println!("Shape: {:?}", tensor.shape().dims());
     println!("Size: {}", tensor.size());
     println!("Is contiguous: {}", tensor.is_contiguous());
     println!("Device: {:?}", tensor.device());
@@ -201,7 +201,7 @@ fn demonstrate_utility_functions() {
     let cpu_tensor = Tensor::zeros_on_device(vec![3, 3], train_station::Device::cpu());
     println!(
         "CPU tensor: shape {:?}, device: {:?}",
-        cpu_tensor.shape().dims,
+        cpu_tensor.shape().dims(),
         cpu_tensor.device()
     );
 }
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_tensor_creation() {
         let tensor = Tensor::zeros(vec![2, 3]);
-        assert_eq!(tensor.shape().dims, vec![2, 3]);
+        assert_eq!(tensor.shape().dims(), vec![2, 3]);
         assert_eq!(tensor.size(), 6);
         assert_eq!(tensor.data(), &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
     }
@@ -235,7 +235,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 
         let reshaped = tensor.view(vec![4]);
-        assert_eq!(reshaped.shape().dims, vec![4]);
+        assert_eq!(reshaped.shape().dims(), vec![4]);
         assert_eq!(reshaped.data(), tensor.data());
     }
 

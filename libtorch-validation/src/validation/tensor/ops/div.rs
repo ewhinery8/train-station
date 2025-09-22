@@ -254,7 +254,7 @@ impl TensorValidator {
         let mut our_result = our_tensor.div_scalar(scalar);
         our_result.backward(None);
 
-        let our_grad = match our_tensor.grad_by_value() {
+        let our_grad = match our_tensor.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor has no gradient".to_string()),
         };
@@ -302,11 +302,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.div_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -487,11 +487,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.div_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -760,6 +760,132 @@ mod tests {
                 shape1, shape2, result.details
             );
         }
+    }
+
+    /// Additional forward broadcasting coverage for division
+    #[test]
+    fn test_div_broadcast_forward_additional() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_div_tensor_broadcasting(&a, &b);
+            assert!(
+                res.passed,
+                "div forward broadcast {:?}/{:?}: {}",
+                a, b, res.details
+            );
+        }
+    }
+
+    /// Additional gradient broadcasting coverage for division
+    #[test]
+    fn test_div_broadcast_gradients_additional() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_div_tensor_broadcasting_gradients(&a, &b);
+            assert!(
+                res.passed,
+                "div grad broadcast {:?}/{:?}: {}",
+                a, b, res.details
+            );
+        }
+    }
+
+    /// Non-contiguous broadcasting forward and gradients for division
+    #[test]
+    fn test_div_broadcast_noncontiguous_forward_and_grad() {
+        // Shapes
+        let a_shape = vec![2, 3, 4];
+        let b_shape = vec![1, 4];
+
+        // Our tensors (non-zero seeds to avoid div-by-zero)
+        let a_data: Vec<f32> = (0..a_shape.iter().product::<usize>())
+            .map(|i| (i as f32) * 0.1 + 2.0)
+            .collect();
+        let b_data: Vec<f32> = (0..b_shape.iter().product::<usize>())
+            .map(|i| (i as f32) * 0.2 + 1.0)
+            .collect();
+
+        let a = Tensor::from_slice(&a_data, a_shape.clone())
+            .unwrap()
+            .with_requires_grad();
+        let b = Tensor::from_slice(&b_data, b_shape.clone())
+            .unwrap()
+            .with_requires_grad();
+
+        // Make non-contiguous views
+        let a_nc = a.transpose(1, 2).transpose(1, 2).retain_grad();
+        let b_nc = b.transpose(0, 1).transpose(0, 1).retain_grad();
+
+        let mut out = a_nc.div_tensor(&b_nc);
+        out.backward(None);
+
+        let our_ga = a_nc.grad_owned().unwrap();
+        let our_gb = b_nc.grad_owned().unwrap();
+
+        // Torch reference
+        let torch_a = LibTorchTensor::from_data(&a_data, &a_shape)
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let torch_b = LibTorchTensor::from_data(&b_data, &b_shape)
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let tout = torch_a.div_tensor(&torch_b).unwrap();
+        let go = LibTorchTensor::ones(&tout.shape()).unwrap();
+        tout.backward(Some(&go)).unwrap();
+        let tga = torch_a.grad().unwrap();
+        let tgb = torch_b.grad().unwrap();
+
+        let v = TensorValidator::new(1e-6, 1e-8);
+        let ca = v.compare_tensors(&our_ga, &tga);
+        assert!(
+            ca.passed,
+            "non-contig div left grad mismatch: {}",
+            ca.details
+        );
+        let cb = v.compare_tensors(&our_gb, &tgb);
+        assert!(
+            cb.passed,
+            "non-contig div right grad mismatch: {}",
+            cb.details
+        );
     }
 
     #[test]

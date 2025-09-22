@@ -36,7 +36,7 @@ impl Tensor {
     /// let result = tensor.select(0, 1);
     ///
     /// // Result shape is [3] (dimension 0 removed)
-    /// assert_eq!(result.shape().dims, vec![3]);
+    /// assert_eq!(result.shape().dims(), vec![3]);
     /// assert_eq!(result.get(&[0]), 3.0);  // First element of row 1
     /// assert_eq!(result.get(&[1]), 4.0);  // Second element of row 1
     /// assert_eq!(result.get(&[2]), 5.0);  // Third element of row 1
@@ -54,7 +54,7 @@ impl Tensor {
     /// let result = tensor.select(1, 1);
     ///
     /// // Result shape is [2] (dimension 1 removed)
-    /// assert_eq!(result.shape().dims, vec![2]);
+    /// assert_eq!(result.shape().dims(), vec![2]);
     /// assert_eq!(result.get(&[0]), 1.0);  // Column 1, row 0
     /// assert_eq!(result.get(&[1]), 4.0);  // Column 1, row 1
     /// ```
@@ -72,8 +72,8 @@ impl Tensor {
     /// result.backward(None);
     ///
     /// // Verify gradients are computed correctly
-    /// let grad = tensor.grad_by_value().expect("gradient missing");
-    /// assert_eq!(grad.shape().dims, vec![2, 2]);
+    /// let grad = tensor.grad_owned().expect("gradient missing");
+    /// assert_eq!(grad.shape().dims(), vec![2, 2]);
     /// // Only row 1 receives gradients
     /// assert_eq!(grad.get(&[0, 0]), 0.0);  // Row 0: no gradient
     /// assert_eq!(grad.get(&[0, 1]), 0.0);  // Row 0: no gradient
@@ -143,7 +143,7 @@ impl Tensor {
             dim,
             rank
         );
-        let dim_size = self.shape().dims[dim];
+        let dim_size = self.shape().dims()[dim];
         assert!(
             index < dim_size,
             "select index {} out of bounds for dimension {} (size {})",
@@ -159,56 +159,23 @@ impl Tensor {
             if i == dim {
                 continue;
             }
-            new_dims.push(self.shape().dims[i]);
+            new_dims.push(self.shape().dims()[i]);
             new_strides.push(self.strides()[i]);
         }
 
         // Base pointer shift by index * stride(dim)
         let base_offset = index * self.stride(dim);
 
-        // Create a view with the same data pointer offset by base_offset
-        // We simulate pointer offset by using memory_offset in access; to preserve zero-copy
-        // semantics, we create a view over the same allocation and adjust shape/strides.
-        let view_shape = crate::tensor::Shape::as_view(new_dims, new_strides);
-        let mut result = self.create_view_with_shape(view_shape);
-
-        // To account for base offset, rebase the `result` by materializing a small view window
-        // via contiguous() if base_offset != 0 for non-view correctness. For simplicity and
-        // correctness across all ops, create a contiguous copy if the base offset is non-zero.
-        if base_offset != 0 {
-            // Materialize contiguous slice
-            let mut contiguous = Tensor::new(result.shape().dims.clone());
-            // Copy elements from self using stride-aware reads starting at base_offset
-            let numel = contiguous.size();
-            let rank2 = result.shape().rank();
-            let mut coords = vec![0usize; rank2];
-            for lin in 0..numel {
-                // Decode coords in result space
-                let mut tmp = lin;
-                for i in (0..rank2).rev() {
-                    let s = result.shape().dims[i];
-                    coords[i] = if s == 0 { 0 } else { tmp % s };
-                    if s != 0 {
-                        tmp /= s;
-                    }
-                }
-                // Map to source coords inserting fixed index at dim
-                let mut src_coords = Vec::with_capacity(rank);
-                for i in 0..rank {
-                    if i == dim {
-                        src_coords.push(index);
-                    } else {
-                        let j = if i < dim { i } else { i - 1 };
-                        src_coords.push(coords[j]);
-                    }
-                }
-                let src_off = self.shape().offset(&src_coords);
-                unsafe {
-                    *contiguous.as_mut_ptr().add(lin) = *self.as_ptr().add(src_off);
-                }
-            }
-            result = contiguous;
-        }
+        // Create zero-copy view using core as_strided with storage_offset
+        let mut result = match crate::tensor::core::view::as_strided_view(
+            self,
+            &new_dims,
+            &new_strides,
+            base_offset,
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("select view error: {:?}", e),
+        };
 
         // GradTrack registration: backward scatters grad_output into zeros at the selected slice
         if self.requires_grad() {
@@ -216,7 +183,7 @@ impl Tensor {
             let grad_fn = GradFn::Select {
                 dim,
                 index,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -234,7 +201,7 @@ mod tests {
     fn test_select_basic() {
         let x = Tensor::from_slice(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0], vec![2, 3]).unwrap();
         let s = x.select(0, 1);
-        assert_eq!(s.shape().dims, vec![3]);
+        assert_eq!(s.shape().dims(), vec![3]);
         assert_eq!(s.get(&[0]), 3.0);
         assert_eq!(s.get(&[2]), 5.0);
     }
@@ -246,7 +213,7 @@ mod tests {
             .with_requires_grad();
         let mut s = x.select(0, 1);
         s.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // Only row 1 receives ones
         assert_eq!(gx.get(&[0, 0]), 0.0);
         assert_eq!(gx.get(&[0, 1]), 0.0);

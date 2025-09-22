@@ -44,7 +44,7 @@ impl Tensor {
     /// // Basic sum calculation
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let total = tensor.sum();
-    /// assert_eq!(total.shape().dims, vec![1]);
+    /// assert_eq!(total.shape().dims(), vec![1]);
     /// assert_eq!(total.get(&[0]), 10.0); // 1 + 2 + 3 + 4 = 10
     /// ```
     ///
@@ -57,7 +57,7 @@ impl Tensor {
     ///     .with_requires_grad();
     /// let mut total = tensor.sum();
     /// total.backward(None);
-    /// let grad = tensor.grad_by_value().expect("gradient should exist");
+    /// let grad = tensor.grad_owned().expect("gradient should exist");
     /// // Gradient should be [1.0, 1.0, 1.0] for each element
     /// assert_eq!(grad.get(&[0]), 1.0);
     /// assert_eq!(grad.get(&[1]), 1.0);
@@ -107,7 +107,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -132,7 +132,7 @@ impl Tensor {
         if self.requires_grad() {
             out.set_requires_grad_internal(true);
             let grad_fn = GradFn::ReduceSum {
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             out.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(out.id(), vec![self.id()], grad_fn);
@@ -176,7 +176,7 @@ impl Tensor {
     /// // Sum along rows (dimension 0) with keepdim=false
     /// let matrix = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let row_sums = matrix.sum_dims(&[0], false);
-    /// assert_eq!(row_sums.shape().dims, vec![2]);
+    /// assert_eq!(row_sums.shape().dims(), vec![2]);
     /// assert_eq!(row_sums.get(&[0]), 4.0); // 1 + 3 = 4
     /// assert_eq!(row_sums.get(&[1]), 6.0); // 2 + 4 = 6
     /// ```
@@ -187,7 +187,7 @@ impl Tensor {
     /// // Sum along columns (dimension 1) with keepdim=true
     /// let matrix = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let col_sums = matrix.sum_dims(&[1], true);
-    /// assert_eq!(col_sums.shape().dims, vec![2, 1]);
+    /// assert_eq!(col_sums.shape().dims(), vec![2, 1]);
     /// assert_eq!(col_sums.get(&[0, 0]), 3.0); // 1 + 2 = 3
     /// assert_eq!(col_sums.get(&[1, 0]), 7.0); // 3 + 4 = 7
     /// ```
@@ -198,7 +198,7 @@ impl Tensor {
     /// // Sum over multiple dimensions
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let total = tensor.sum_dims(&[0, 1], false);
-    /// assert_eq!(total.shape().dims, vec![1]);
+    /// assert_eq!(total.shape().dims(), vec![1]);
     /// assert_eq!(total.get(&[0]), 10.0); // 1 + 2 + 3 + 4 = 10
     /// ```
     ///
@@ -211,7 +211,7 @@ impl Tensor {
     ///     .with_requires_grad();
     /// let mut row_sums = tensor.sum_dims(&[0], false);
     /// row_sums.backward(None);
-    /// let grad = tensor.grad_by_value().expect("gradient should exist");
+    /// let grad = tensor.grad_owned().expect("gradient should exist");
     /// // Gradient should be [1.0, 1.0, 1.0, 1.0] for each element
     /// assert_eq!(grad.get(&[0, 0]), 1.0);
     /// assert_eq!(grad.get(&[0, 1]), 1.0);
@@ -237,7 +237,7 @@ impl Tensor {
         }
 
         // Build output shape
-        let mut out_dims = self.shape().dims.clone();
+        let mut out_dims = self.shape().dims().to_vec();
         let mut reduced: Vec<usize> = dims.to_vec();
         reduced.sort_unstable();
         reduced.dedup();
@@ -253,7 +253,7 @@ impl Tensor {
         let mut out = Tensor::zeros(out_dims.clone());
 
         // Accumulate along reduced dims
-        let in_shape = self.shape().dims.clone();
+        let in_shape = self.shape().dims().to_vec();
         let out_rank = out.shape().rank();
         let mut in_coords = vec![0usize; rank];
         unsafe {
@@ -297,7 +297,7 @@ impl Tensor {
             out.set_requires_grad_internal(true);
             let grad_fn = GradFn::ReduceSumDims {
                 dims: reduced,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 keepdim,
             };
             out.set_grad_fn(grad_fn.clone());
@@ -321,7 +321,7 @@ mod tests {
             }
         }
         let s = x.sum();
-        assert_eq!(s.shape().dims, vec![1]);
+        assert_eq!(s.shape().dims(), vec![1]);
         unsafe {
             assert!((*s.as_ptr() - 7.5).abs() < 1e-6);
         }
@@ -337,7 +337,7 @@ mod tests {
         }
         let mut s = x.sum();
         s.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         for i in 0..4 {
             unsafe {
                 assert_eq!(*gx.as_ptr().add(i), 1.0);
@@ -353,7 +353,7 @@ mod tests {
         let y = x.mul_scalar(2.0).add_scalar(1.0);
         let mut s = y.sum();
         s.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // d/dx of sum(2x+1) = 2 for each element
         for i in 0..4 {
             unsafe {
@@ -389,14 +389,14 @@ mod tests {
 
         // Sum along dim 0 of transposed tensor
         let sum_dim0 = x_t.sum_dims(&[0], false);
-        assert_eq!(sum_dim0.shape().dims, vec![2]);
+        assert_eq!(sum_dim0.shape().dims(), vec![2]);
         // Should be [1+2+3, 4+5+6] = [6, 15]
         assert_eq!(sum_dim0.get(&[0]), 6.0);
         assert_eq!(sum_dim0.get(&[1]), 15.0);
 
         // Sum along dim 1 of transposed tensor
         let sum_dim1 = x_t.sum_dims(&[1], false);
-        assert_eq!(sum_dim1.shape().dims, vec![3]);
+        assert_eq!(sum_dim1.shape().dims(), vec![3]);
         // Should be [1+4, 2+5, 3+6] = [5, 7, 9]
         assert_eq!(sum_dim1.get(&[0]), 5.0);
         assert_eq!(sum_dim1.get(&[1]), 7.0);

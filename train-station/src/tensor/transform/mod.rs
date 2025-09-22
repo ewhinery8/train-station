@@ -38,12 +38,12 @@
 //!
 //! // Transpose to 3x2 (zero-copy view)
 //! let transposed = tensor.transpose(0, 1);
-//! assert_eq!(transposed.shape().dims, vec![3, 2]);
+//! assert_eq!(transposed.shape().dims(), vec![3, 2]);
 //! assert!(!transposed.is_contiguous()); // View is not contiguous
 //!
 //! // Reshape to 1D (zero-copy when possible)
 //! let flattened = tensor.flatten();
-//! assert_eq!(flattened.shape().dims, vec![6]);
+//! assert_eq!(flattened.shape().dims(), vec![6]);
 //! ```
 //!
 //! ```
@@ -53,7 +53,7 @@
 //! let t1 = Tensor::from_slice(&[1.0, 2.0], vec![1, 2]).unwrap();
 //! let t2 = Tensor::from_slice(&[3.0, 4.0], vec![1, 2]).unwrap();
 //! let concatenated = Tensor::cat(&[t1.clone(), t2.clone()], 0);
-//! assert_eq!(concatenated.shape().dims, vec![2, 2]);
+//! assert_eq!(concatenated.shape().dims(), vec![2, 2]);
 //! ```
 //!
 //! ```
@@ -63,7 +63,7 @@
 //! let t1 = Tensor::from_slice(&[1.0, 2.0], vec![2]).unwrap();
 //! let t2 = Tensor::from_slice(&[3.0, 4.0], vec![2]).unwrap();
 //! let stacked = Tensor::stack(&[t1.clone(), t2.clone()], 0);
-//! assert_eq!(stacked.shape().dims, vec![2, 2]);
+//! assert_eq!(stacked.shape().dims(), vec![2, 2]);
 //! ```
 //!
 //! # Performance Characteristics
@@ -96,4 +96,3 @@ pub mod squeeze;
 pub mod stack;
 pub mod transpose;
 pub mod unsqueeze;
-pub mod view;

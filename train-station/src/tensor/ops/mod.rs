@@ -125,7 +125,7 @@
 //!
 //! // Matrix operations
 //! let result = a.matmul(&b);             // Matrix multiplication
-//! assert_eq!(result.shape().dims, vec![2, 2]);
+//! assert_eq!(result.shape().dims(), vec![2, 2]);
 //! assert_eq!(result.data()[0], 19.0); // 1*5 + 2*7 = 19
 //! assert_eq!(result.data()[1], 22.0); // 1*6 + 2*8 = 22
 //! ```

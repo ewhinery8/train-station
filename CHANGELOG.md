@@ -28,6 +28,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - 
 
+## [0.2.0] - 2025-09-21
+
+### Added
+- add view system, memory pool, thread-safe autograd, and broadcasting
+  - Zero-copy views (reshape, transpose, slice, as_strided)
+  - SIMD-aligned TensorMemoryPool with thread-local optimization
+  - Thread-safe GradTrack with local/shared computation graphs
+  - NumPy-compatible broadcasting for element-wise and batched ops
+  - Enhanced matmul/add with SIMD acceleration
+  - Add retain_grad for non-leaf tensor gradients
+  - Improve function signatures for better Rust idioms
+  - Enhanced Iterator system with idiomatic Rust patterns
+  - Add iter_values for efficient element iteration
+  - Add collect_shape for seamless tensor reconstruction from iterators
+  - Add TensorCollectExt trait for iterator-based tensor construction
+
+### Fixed
+- No bug fixes
+
+### Performance
+- No performance improvements
+
+### Documentation
+- No documentation changes
+
+### Maintenance
+- No maintenance changes
+
+### Other Changes
+- No other changes
+
 ## [0.1.6] - 2025-09-01
 
 ### Added

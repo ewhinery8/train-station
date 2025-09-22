@@ -35,7 +35,7 @@ impl TensorValidator {
         let y = x.pow_scalar(exponent);
         let mut s = y.sum();
         s.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };
@@ -107,11 +107,11 @@ impl TensorValidator {
         let y = x.pow_tensor(&a);
         let mut s = y.sum();
         s.backward(None);
-        let our_gx = match x.grad_by_value() {
+        let our_gx = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad X missing".to_string()),
         };
-        let our_ga = match a.grad_by_value() {
+        let our_ga = match a.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad A missing".to_string()),
         };

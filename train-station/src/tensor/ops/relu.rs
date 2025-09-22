@@ -54,7 +54,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-1.0, 0.0, 2.5], vec![3]).unwrap();
     /// let b = a.relu();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 0.0); // max(0, -1.0) = 0.0
     /// assert_eq!(b.get(&[1]), 0.0); // max(0, 0.0) = 0.0
     /// assert_eq!(b.get(&[2]), 2.5); // max(0, 2.5) = 2.5
@@ -67,7 +67,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-5.0, -0.1, 0.0, 0.1, 5.0], vec![5]).unwrap();
     /// let b = a.relu();
-    /// assert_eq!(b.shape().dims, vec![5]);
+    /// assert_eq!(b.shape().dims(), vec![5]);
     /// assert_eq!(b.get(&[0]), 0.0); // max(0, -5.0) = 0.0
     /// assert_eq!(b.get(&[1]), 0.0); // max(0, -0.1) = 0.0
     /// assert_eq!(b.get(&[2]), 0.0); // max(0, 0.0) = 0.0
@@ -117,7 +117,7 @@ impl Tensor {
     /// parallelism.
     #[inline]
     pub(crate) fn relu_optimized(&self) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;

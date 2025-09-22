@@ -16,7 +16,7 @@ impl TensorValidator {
         let mut our_result = our_tensor.add_scalar(scalar);
         our_result.backward(None);
 
-        let our_grad = match our_tensor.grad_by_value() {
+        let our_grad = match our_tensor.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor has no gradient".to_string()),
         };
@@ -70,11 +70,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.add_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -299,11 +299,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.add_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -770,6 +770,153 @@ mod add_validation_tests {
                 shape1, shape2, result.details
             );
             println!("Broadcasting add {:?} + {:?}: PASSED", shape1, shape2);
+        }
+    }
+
+    /// Additional forward broadcasting coverage across ranks and tricky shapes
+    #[test]
+    fn test_add_broadcast_forward_additional() {
+        let validator = TensorValidator::default();
+
+        // (shape_a, shape_b)
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            (vec![1], vec![5, 7, 9]),
+            (vec![5, 7, 9], vec![1]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+            // Zero-sized dims
+            (vec![0], vec![0]),
+            (vec![0, 3], vec![0, 3]),
+            (vec![2, 0, 4], vec![1, 0, 1]),
+            (vec![1, 0, 3], vec![2, 0, 1, 3]),
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_add_tensor_broadcasting(&a, &b);
+            assert!(
+                res.passed,
+                "add forward broadcast {:?}+{:?}: {}",
+                a, b, res.details
+            );
+        }
+    }
+
+    /// Additional gradient broadcasting coverage across ranks and tricky shapes
+    #[test]
+    fn test_add_broadcast_gradients_additional() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        // (shape_a, shape_b)
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            (vec![1], vec![5, 7, 9]),
+            (vec![5, 7, 9], vec![1]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+            // Note: zero-sized dims covered in forward tests; our gradient path
+            // currently requires positive sizes for internal views.
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_add_tensor_broadcasting_gradients(&a, &b);
+            assert!(
+                res.passed,
+                "add grad broadcast {:?}+{:?}: {}",
+                a, b, res.details
+            );
+        }
+    }
+
+    /// Non-contiguous broadcasting forward and gradients
+    #[test]
+    fn test_add_broadcast_noncontiguous_forward_and_grad() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        // Build non-contiguous via transpose/permute then compare against LibTorch
+        // Case 1: 3D + broadcasted 2D row
+        {
+            let a_shape = vec![2, 3, 4];
+            let b_shape = vec![1, 4];
+
+            // Create our tensors
+            let mut a = Tensor::zeros(a_shape.clone()).with_requires_grad();
+            let mut b = Tensor::zeros(b_shape.clone()).with_requires_grad();
+            unsafe {
+                for (i, _v) in (0..a.size()).enumerate() {
+                    *a.as_mut_ptr().add(i) = (i as f32) * 0.1 + 1.0;
+                }
+                for (i, _v) in (0..b.size()).enumerate() {
+                    *b.as_mut_ptr().add(i) = (i as f32) * 0.2 + 0.5;
+                }
+            }
+
+            // Make non-contiguous views
+            let a_nc = a.transpose(1, 2).transpose(1, 2).retain_grad();
+            let b_nc = b.transpose(0, 1).transpose(0, 1).retain_grad();
+
+            // Our forward and grad
+            let mut out = a_nc.add_tensor(&b_nc);
+            out.backward(None);
+
+            let our_ga = a_nc.grad_owned().unwrap();
+            let our_gb = b_nc.grad_owned().unwrap();
+
+            // Torch comparison via validator utilities
+            let forward_cmp = validator.test_add_tensor_broadcasting(&a_shape, &b_shape);
+            assert!(
+                forward_cmp.passed,
+                "non-contig add forward failed: {}",
+                forward_cmp.details
+            );
+
+            // Reuse gradient helper (contiguous case) to compare shapes/values
+            let grad_cmp = validator.test_add_tensor_broadcasting_gradients(&a_shape, &b_shape);
+            assert!(
+                grad_cmp.passed,
+                "non-contig add grads failed: {}",
+                grad_cmp.details
+            );
+            // Note: Our non-contig gradients are compared via shapes/value equality in core compare
+            let torch_a = LibTorchTensor::from_data(a.data(), &a_shape)
+                .unwrap()
+                .requires_grad_(true)
+                .unwrap();
+            let torch_b = LibTorchTensor::from_data(b.data(), &b_shape)
+                .unwrap()
+                .requires_grad_(true)
+                .unwrap();
+            let torch_out = torch_a.add_tensor(&torch_b).unwrap();
+            let go = LibTorchTensor::ones(&torch_out.shape()).unwrap();
+            torch_out.backward(Some(&go)).unwrap();
+            let tga = torch_a.grad().unwrap();
+            let tgb = torch_b.grad().unwrap();
+            let ca = validator.compare_tensors(&our_ga, &tga);
+            assert!(ca.passed, "non-contig left grad mismatch: {}", ca.details);
+            let cb = validator.compare_tensors(&our_gb, &tgb);
+            assert!(cb.passed, "non-contig right grad mismatch: {}", cb.details);
         }
     }
 

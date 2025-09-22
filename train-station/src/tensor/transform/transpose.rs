@@ -27,7 +27,7 @@
 //! // Basic 2D transpose
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
 //! let transposed = tensor.transpose(0, 1);
-//! assert_eq!(transposed.shape().dims, vec![3, 2]);
+//! assert_eq!(transposed.shape().dims(), vec![3, 2]);
 //! ```
 //!
 //! ```
@@ -36,7 +36,7 @@
 //! // Matrix transpose convenience method
 //! let matrix = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 //! let transposed = matrix.t();
-//! assert_eq!(transposed.shape().dims, vec![2, 2]);
+//! assert_eq!(transposed.shape().dims(), vec![2, 2]);
 //! ```
 //!
 //! # Gradient Tracking
@@ -82,7 +82,7 @@ impl Tensor {
     /// // Basic 2D transpose
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     /// let transposed = tensor.transpose(0, 1);
-    /// assert_eq!(transposed.shape().dims, vec![3, 2]);
+    /// assert_eq!(transposed.shape().dims(), vec![3, 2]);
     /// assert_eq!(transposed.get(&[0, 0]), 1.0);
     /// assert_eq!(transposed.get(&[0, 1]), 4.0);
     /// assert_eq!(transposed.get(&[1, 0]), 2.0);
@@ -98,7 +98,7 @@ impl Tensor {
     /// let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
     /// let tensor = Tensor::from_slice(&data, vec![2, 3, 4]).unwrap();
     /// let transposed = tensor.transpose(0, 1);
-    /// assert_eq!(transposed.shape().dims, vec![3, 2, 4]);
+    /// assert_eq!(transposed.shape().dims(), vec![3, 2, 4]);
     /// ```
     ///
     /// ```
@@ -110,7 +110,7 @@ impl Tensor {
     ///
     /// let transposed = tensor.transpose(0, 1);
     /// assert!(transposed.requires_grad());
-    /// assert_eq!(transposed.shape().dims, vec![2, 2]);
+    /// assert_eq!(transposed.shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// ```
@@ -119,7 +119,7 @@ impl Tensor {
     /// // Transpose same dimension (no change)
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let result = tensor.transpose(1, 1);
-    /// assert_eq!(result.shape().dims, tensor.shape().dims);
+    /// assert_eq!(result.shape().dims(), tensor.shape().dims());
     /// assert_eq!(result.get(&[0, 0]), tensor.get(&[0, 0]));
     /// ```
     ///
@@ -130,7 +130,7 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let transposed = tensor.transpose(0, 1);
     /// let double_transposed = transposed.transpose(0, 1);
-    /// assert_eq!(double_transposed.shape().dims, tensor.shape().dims);
+    /// assert_eq!(double_transposed.shape().dims(), tensor.shape().dims());
     /// assert_eq!(double_transposed.get(&[0, 0]), tensor.get(&[0, 0]));
     /// ```
     ///
@@ -173,20 +173,13 @@ impl Tensor {
             return self.clone();
         }
 
-        // Create new dimensions and strides by swapping
-        let mut new_dims = self.shape().dims.clone();
-        let mut new_strides = self.strides().to_vec();
-
-        new_dims.swap(dim0, dim1);
-        new_strides.swap(dim0, dim1);
-
-        // Create a view-based transpose when possible (creates non-contiguous tensor)
-        let mut result = if self.is_contiguous() && self.can_transpose_as_view(dim0, dim1) {
-            let new_shape = crate::tensor::Shape::as_view(new_dims, new_strides);
-            self.create_view_with_shape(new_shape)
-        } else {
-            // Fallback to copy for complex cases
-            self.transpose_with_copy(new_dims, new_strides, dim0, dim1)
+        // Build permutation and delegate to core view
+        let rank = self.shape().rank();
+        let mut perm: Vec<usize> = (0..rank).collect();
+        perm.swap(dim0, dim1);
+        let mut result = match crate::tensor::core::view::transpose_view(self, &perm) {
+            Ok(v) => v,
+            Err(e) => panic!("transpose view error: {:?}", e),
         };
 
         // GradTrack: register transpose for backward (transpose is its own inverse)
@@ -195,7 +188,7 @@ impl Tensor {
             let grad_fn = crate::gradtrack::grad_fn::GradFn::Transpose {
                 dim0,
                 dim1,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             crate::gradtrack::engine::GradEngine::register_operation(
@@ -234,7 +227,7 @@ impl Tensor {
     /// // 2D matrix transpose
     /// let matrix = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let transposed = matrix.t();
-    /// assert_eq!(transposed.shape().dims, vec![2, 2]);
+    /// assert_eq!(transposed.shape().dims(), vec![2, 2]);
     /// assert_eq!(transposed.get(&[0, 0]), 1.0);
     /// assert_eq!(transposed.get(&[0, 1]), 3.0);
     /// assert_eq!(transposed.get(&[1, 0]), 2.0);
@@ -248,7 +241,7 @@ impl Tensor {
     /// let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
     /// let tensor = Tensor::from_slice(&data, vec![2, 2, 3]).unwrap();
     /// let transposed = tensor.t();
-    /// assert_eq!(transposed.shape().dims, vec![2, 3, 2]);
+    /// assert_eq!(transposed.shape().dims(), vec![2, 3, 2]);
     /// ```
     ///
     /// ```
@@ -260,7 +253,7 @@ impl Tensor {
     ///
     /// let transposed = matrix.t();
     /// assert!(transposed.requires_grad());
-    /// assert_eq!(transposed.shape().dims, vec![2, 2]);
+    /// assert_eq!(transposed.shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// # Performance
@@ -291,161 +284,6 @@ impl Tensor {
         let rank = self.shape().rank();
         self.transpose(rank - 2, rank - 1)
     }
-
-    /// Check if transpose can be done as a zero-copy view operation
-    ///
-    /// Determines whether the transpose operation can be performed as a
-    /// zero-copy view by manipulating strides rather than copying data.
-    /// This is possible for contiguous tensors when swapping different dimensions.
-    ///
-    /// # Arguments
-    ///
-    /// * `dim0` - First dimension to swap
-    /// * `dim1` - Second dimension to swap
-    ///
-    /// # Returns
-    ///
-    /// `true` if the transpose can be done as a view (zero-copy), `false` otherwise
-    ///
-    /// # Performance
-    ///
-    /// - **Time Complexity**: O(1) - Simple boolean checks
-    /// - **Memory Usage**: No allocation
-    ///
-    /// # Examples
-    ///
-    /// This method is used internally by the `transpose()` function to
-    /// determine the optimal implementation strategy (view vs copy).
-    fn can_transpose_as_view(&self, dim0: usize, dim1: usize) -> bool {
-        // For contiguous tensors, we can always create a view with different strides
-        // This is safe because we're not modifying the underlying data, just the access pattern
-        self.is_contiguous() && (dim0 != dim1)
-    }
-
-    /// Transpose with data copying when view operation is not possible
-    ///
-    /// Performs transpose by copying data to a new tensor when a view-based
-    /// transpose is not possible or optimal. This method ensures correct
-    /// transposition for all tensor types and memory layouts.
-    ///
-    /// # Arguments
-    ///
-    /// * `new_dims` - The new dimensions after transposition
-    /// * `_new_strides` - The new strides after transposition (unused in copy implementation)
-    /// * `dim0` - First dimension that was swapped
-    /// * `dim1` - Second dimension that was swapped
-    ///
-    /// # Returns
-    ///
-    /// A new tensor with copied and transposed data
-    ///
-    /// # Performance
-    ///
-    /// - **Time Complexity**: O(n) where n is the number of elements
-    /// - **Memory Usage**: Allocates new tensor with same total size
-    /// - **Data Integrity**: Ensures correct transposition for all cases
-    ///
-    /// # Examples
-    ///
-    /// This method is called internally by `transpose()` when view-based
-    /// transposition is not possible, such as for non-contiguous tensors
-    /// or complex memory layouts.
-    fn transpose_with_copy(
-        &self,
-        new_dims: Vec<usize>,
-        _new_strides: Vec<usize>,
-        dim0: usize,
-        dim1: usize,
-    ) -> Tensor {
-        let mut result = Tensor::new(new_dims.clone());
-
-        // Use stride-aware copying that correctly handles arbitrary dimension swaps
-        unsafe {
-            self.transpose_copy_stride_aware(&mut result, dim0, dim1);
-        }
-
-        // Preserve gradient tracking requirement
-        if self.requires_grad() {
-            result.set_requires_grad(true);
-        }
-
-        result
-    }
-
-    /// Stride-aware transpose copy that correctly handles arbitrary dimension swaps
-    ///
-    /// Performs efficient transpose copying using coordinate mapping and
-    /// stride calculations. This method correctly handles transposition
-    /// of any two dimensions in tensors of arbitrary rank and shape.
-    ///
-    /// # Arguments
-    ///
-    /// * `result` - Output tensor to write transposed data
-    /// * `dim0` - First dimension that was swapped
-    /// * `dim1` - Second dimension that was swapped
-    ///
-    /// # Safety
-    ///
-    /// This function uses unsafe pointer arithmetic for performance.
-    /// The caller must ensure:
-    /// * `result` tensor has the correct size and shape
-    /// * `result` tensor is properly allocated and accessible
-    /// * `dim0` and `dim1` are valid dimension indices
-    /// * Source tensor data is valid and accessible
-    ///
-    /// # Performance
-    ///
-    /// - **Time Complexity**: O(n) where n is the number of elements
-    /// - **Memory Access**: Optimized for cache-friendly access patterns
-    /// - **Coordinate Mapping**: Efficient conversion between linear and multi-dimensional indices
-    /// - **Bounds Checking**: Debug assertions for safety in debug builds
-    ///
-    /// # Examples
-    ///
-    /// This method is used internally by `transpose_with_copy()` to perform
-    /// the actual data copying with correct coordinate mapping for arbitrary
-    /// dimension swaps.
-    unsafe fn transpose_copy_stride_aware(&self, result: &mut Tensor, dim0: usize, dim1: usize) {
-        let src_ptr = self.as_ptr();
-        let dst_ptr = result.as_mut_ptr();
-
-        // Iterate through all elements of the result tensor
-        for dst_idx in 0..result.size() {
-            // Convert linear index to multi-dimensional coordinates for result
-            let mut dst_coords = Vec::new();
-            let mut temp_idx = dst_idx;
-
-            for &dim_size in result.shape().dims.iter().rev() {
-                dst_coords.push(temp_idx % dim_size);
-                temp_idx /= dim_size;
-            }
-            dst_coords.reverse();
-
-            // Map result coordinates to source coordinates (reverse the transpose)
-            let mut src_coords = dst_coords.clone();
-            src_coords.swap(dim0, dim1);
-
-            // Calculate source offset using strides
-            let src_offset = self.shape().offset(&src_coords);
-
-            // Bounds check to prevent buffer overruns
-            debug_assert!(
-                src_offset < self.size(),
-                "Source offset {} out of bounds for tensor size {}",
-                src_offset,
-                self.size()
-            );
-            debug_assert!(
-                dst_idx < result.size(),
-                "Destination index {} out of bounds for result size {}",
-                dst_idx,
-                result.size()
-            );
-
-            // Copy element
-            *dst_ptr.add(dst_idx) = *src_ptr.add(src_offset);
-        }
-    }
 }
 
 #[cfg(test)]
@@ -458,7 +296,7 @@ mod tests {
             .expect("Failed to create tensor");
         let transposed = tensor.transpose(0, 1);
 
-        assert_eq!(transposed.shape().dims, vec![3, 2]);
+        assert_eq!(transposed.shape().dims(), vec![3, 2]);
 
         // Verify data layout: original [2,3] -> transposed [3,2]
         // Original: [[1,2,3], [4,5,6]]
@@ -477,7 +315,7 @@ mod tests {
             Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).expect("Failed to create tensor");
         let transposed = matrix.t();
 
-        assert_eq!(transposed.shape().dims, vec![2, 2]);
+        assert_eq!(transposed.shape().dims(), vec![2, 2]);
 
         // Original: [[1,2], [3,4]]
         // Transposed: [[1,3], [2,4]]
@@ -493,7 +331,7 @@ mod tests {
         let transposed = tensor.transpose(0, 2);
 
         // Shape changes from [2,3,4] to [4,3,2]
-        assert_eq!(transposed.shape().dims, vec![4, 3, 2]);
+        assert_eq!(transposed.shape().dims(), vec![4, 3, 2]);
     }
 
     #[test]
@@ -503,7 +341,7 @@ mod tests {
         let result = tensor.transpose(1, 1);
 
         // Should be identical to original
-        assert_eq!(result.shape().dims, tensor.shape().dims);
+        assert_eq!(result.shape().dims(), tensor.shape().dims());
         for i in 0..2 {
             for j in 0..2 {
                 assert_eq!(result.get(&[i, j]), tensor.get(&[i, j]));
@@ -540,7 +378,7 @@ mod tests {
         let tensor = Tensor::new(vec![32, 32]); // 1024 elements
         let transposed = tensor.transpose(0, 1);
 
-        assert_eq!(transposed.shape().dims, vec![32, 32]);
+        assert_eq!(transposed.shape().dims(), vec![32, 32]);
     }
 
     #[test]
@@ -551,7 +389,7 @@ mod tests {
         let transposed = tensor.transpose(0, 1);
         // After transpose, the result should still be valid but may not be contiguous
         // depending on implementation (view vs copy)
-        assert_eq!(transposed.shape().dims, vec![4, 3]);
+        assert_eq!(transposed.shape().dims(), vec![4, 3]);
     }
 
     #[test]
@@ -564,7 +402,7 @@ mod tests {
         let transposed = tensor.transpose(0, 1);
 
         // Shape should change from [2,3,4] to [3,2,4]
-        assert_eq!(transposed.shape().dims, vec![3, 2, 4]);
+        assert_eq!(transposed.shape().dims(), vec![3, 2, 4]);
 
         // Verify data is correctly transposed
         // Original: tensor[d0][d1][d2] where d0=2, d1=3, d2=4

@@ -28,9 +28,9 @@
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
 //! let parts = tensor.split(1, 1);
 //! assert_eq!(parts.len(), 3);
-//! assert_eq!(parts[0].shape().dims, vec![2, 1]);
-//! assert_eq!(parts[1].shape().dims, vec![2, 1]);
-//! assert_eq!(parts[2].shape().dims, vec![2, 1]);
+//! assert_eq!(parts[0].shape().dims(), vec![2, 1]);
+//! assert_eq!(parts[1].shape().dims(), vec![2, 1]);
+//! assert_eq!(parts[2].shape().dims(), vec![2, 1]);
 //! ```
 //!
 //! ```
@@ -40,8 +40,8 @@
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![1, 5]).unwrap();
 //! let parts = tensor.split_with_sizes(&[2, 3], 1);
 //! assert_eq!(parts.len(), 2);
-//! assert_eq!(parts[0].shape().dims, vec![1, 2]);
-//! assert_eq!(parts[1].shape().dims, vec![1, 3]);
+//! assert_eq!(parts[0].shape().dims(), vec![1, 2]);
+//! assert_eq!(parts[1].shape().dims(), vec![1, 3]);
 //! ```
 //!
 //! # Gradient Tracking
@@ -92,9 +92,9 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     /// let parts = tensor.split(1, 1);
     /// assert_eq!(parts.len(), 3);
-    /// assert_eq!(parts[0].shape().dims, vec![2, 1]);
-    /// assert_eq!(parts[1].shape().dims, vec![2, 1]);
-    /// assert_eq!(parts[2].shape().dims, vec![2, 1]);
+    /// assert_eq!(parts[0].shape().dims(), vec![2, 1]);
+    /// assert_eq!(parts[1].shape().dims(), vec![2, 1]);
+    /// assert_eq!(parts[2].shape().dims(), vec![2, 1]);
     /// assert_eq!(parts[0].get(&[0, 0]), 1.0);
     /// assert_eq!(parts[1].get(&[0, 0]), 2.0);
     /// assert_eq!(parts[2].get(&[1, 0]), 6.0);
@@ -107,9 +107,9 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![1, 5]).unwrap();
     /// let parts = tensor.split(2, 1);
     /// assert_eq!(parts.len(), 3);
-    /// assert_eq!(parts[0].shape().dims, vec![1, 2]);
-    /// assert_eq!(parts[1].shape().dims, vec![1, 2]);
-    /// assert_eq!(parts[2].shape().dims, vec![1, 1]); // Last chunk smaller
+    /// assert_eq!(parts[0].shape().dims(), vec![1, 2]);
+    /// assert_eq!(parts[1].shape().dims(), vec![1, 2]);
+    /// assert_eq!(parts[2].shape().dims(), vec![1, 1]); // Last chunk smaller
     /// ```
     ///
     /// ```
@@ -132,9 +132,9 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![6]).unwrap();
     /// let parts = tensor.split(2, 0);
     /// assert_eq!(parts.len(), 3);
-    /// assert_eq!(parts[0].shape().dims, vec![2]);
-    /// assert_eq!(parts[1].shape().dims, vec![2]);
-    /// assert_eq!(parts[2].shape().dims, vec![2]);
+    /// assert_eq!(parts[0].shape().dims(), vec![2]);
+    /// assert_eq!(parts[1].shape().dims(), vec![2]);
+    /// assert_eq!(parts[2].shape().dims(), vec![2]);
     /// ```
     ///
     /// # Performance
@@ -166,7 +166,7 @@ impl Tensor {
             self.shape().rank()
         );
         assert!(split_size > 0, "split_size must be > 0");
-        let dim_size = self.shape().dims[dim];
+        let dim_size = self.shape().dims()[dim];
         if dim_size == 0 {
             return vec![];
         }
@@ -218,8 +218,8 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![1, 5]).unwrap();
     /// let parts = tensor.split_with_sizes(&[2, 3], 1);
     /// assert_eq!(parts.len(), 2);
-    /// assert_eq!(parts[0].shape().dims, vec![1, 2]);
-    /// assert_eq!(parts[1].shape().dims, vec![1, 3]);
+    /// assert_eq!(parts[0].shape().dims(), vec![1, 2]);
+    /// assert_eq!(parts[1].shape().dims(), vec![1, 3]);
     /// assert_eq!(parts[0].get(&[0, 0]), 1.0);
     /// assert_eq!(parts[0].get(&[0, 1]), 2.0);
     /// assert_eq!(parts[1].get(&[0, 0]), 3.0);
@@ -232,8 +232,8 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     /// let parts = tensor.split_with_sizes(&[1, 2], 1);
     /// assert_eq!(parts.len(), 2);
-    /// assert_eq!(parts[0].shape().dims, vec![2, 1]);
-    /// assert_eq!(parts[1].shape().dims, vec![2, 2]);
+    /// assert_eq!(parts[0].shape().dims(), vec![2, 1]);
+    /// assert_eq!(parts[1].shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// ```
@@ -256,9 +256,9 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![6]).unwrap();
     /// let parts = tensor.split_with_sizes(&[2, 2, 2], 0);
     /// assert_eq!(parts.len(), 3);
-    /// assert_eq!(parts[0].shape().dims, vec![2]);
-    /// assert_eq!(parts[1].shape().dims, vec![2]);
-    /// assert_eq!(parts[2].shape().dims, vec![2]);
+    /// assert_eq!(parts[0].shape().dims(), vec![2]);
+    /// assert_eq!(parts[1].shape().dims(), vec![2]);
+    /// assert_eq!(parts[2].shape().dims(), vec![2]);
     /// ```
     ///
     /// # Performance
@@ -291,7 +291,7 @@ impl Tensor {
             dim,
             self.shape().rank()
         );
-        let dim_size = self.shape().dims[dim];
+        let dim_size = self.shape().dims()[dim];
         let total: usize = split_sizes.iter().sum();
         assert!(
             total == dim_size,
@@ -307,7 +307,7 @@ impl Tensor {
             if len == 0 {
                 outputs.push(Tensor::zeros(
                     self.shape()
-                        .dims
+                        .dims()
                         .iter()
                         .enumerate()
                         .map(|(i, &d)| if i == dim { 0 } else { d })
@@ -316,7 +316,7 @@ impl Tensor {
                 continue;
             }
             // Build new dims/strides with updated length along `dim`
-            let mut new_dims = self.shape().dims.clone();
+            let mut new_dims = self.shape().dims().to_vec();
             new_dims[dim] = len;
             let new_strides = self.strides().to_vec();
 
@@ -330,24 +330,40 @@ impl Tensor {
             } else {
                 // Materialize contiguous copy for non-zero base offset
                 piece = Tensor::new(new_dims.clone());
-                let rank = new_dims.len();
-                let numel = piece.size();
-                let mut coords = vec![0usize; rank];
-                for lin in 0..numel {
-                    let mut tmp = lin;
-                    for i in (0..rank).rev() {
-                        let s = new_dims[i];
-                        coords[i] = if s == 0 { 0 } else { tmp % s };
-                        if s != 0 {
-                            tmp /= s;
+                // Use contiguous block copy per outer index to avoid per-element stride math
+                let inner: usize = new_dims[dim + 1..].iter().product();
+                let outer: usize = new_dims[..dim].iter().product();
+                unsafe {
+                    let dst_ptr = piece.as_mut_ptr();
+                    for outer_idx in 0..outer {
+                        let dst_row_base = outer_idx * (new_dims[dim] * inner);
+
+                        for k in 0..new_dims[dim] {
+                            // Calculate linear src pointer by mapping (outer, k, inner) to offset via offset() once per block
+                            // Fallback: compute src offset for the first element of the inner block and copy inner contiguous values
+                            // Build coordinates for the first element in this block
+                            let mut coords = vec![0usize; new_dims.len()];
+                            // Fill outer dims from outer_idx
+                            let mut tmp = outer_idx;
+                            for i in (0..dim).rev() {
+                                let s = new_dims[i];
+                                coords[i] = if s == 0 { 0 } else { tmp % s };
+                                if s != 0 {
+                                    tmp /= s;
+                                }
+                            }
+                            coords[dim] = k;
+                            // inner dims start at 0 here
+                            let mut src_coords = coords.clone();
+                            src_coords[dim] = start + k;
+                            let src_off = self.shape().offset(&src_coords);
+                            let dst_off = dst_row_base + k * inner;
+                            crate::tensor::iterator::collect::optimized_copy(
+                                self.as_ptr().add(src_off),
+                                dst_ptr.add(dst_off),
+                                inner,
+                            );
                         }
-                    }
-                    // Map to source coords
-                    let mut src_coords = coords.clone();
-                    src_coords[dim] = start + coords[dim];
-                    let src_off = self.shape().offset(&src_coords);
-                    unsafe {
-                        *piece.as_mut_ptr().add(lin) = *self.as_ptr().add(src_off);
                     }
                 }
             }
@@ -359,7 +375,7 @@ impl Tensor {
                     dim,
                     start,
                     length: len,
-                    input_shape: self.shape().dims.clone(),
+                    input_shape: self.shape().dims().to_vec(),
                 };
                 piece.set_grad_fn(grad_fn.clone());
                 GradEngine::register_operation(piece.id(), vec![self.id()], grad_fn);
@@ -383,9 +399,9 @@ mod tests {
         let x = Tensor::from_slice(&data, vec![2, 6]).unwrap();
         let parts = x.split(2, 1);
         assert_eq!(parts.len(), 3);
-        assert_eq!(parts[0].shape().dims, vec![2, 2]);
-        assert_eq!(parts[1].shape().dims, vec![2, 2]);
-        assert_eq!(parts[2].shape().dims, vec![2, 2]);
+        assert_eq!(parts[0].shape().dims(), vec![2, 2]);
+        assert_eq!(parts[1].shape().dims(), vec![2, 2]);
+        assert_eq!(parts[2].shape().dims(), vec![2, 2]);
         // Check a few values
         assert_eq!(parts[0].get(&[0, 0]), 0.0);
         assert_eq!(parts[1].get(&[0, 0]), 2.0);
@@ -398,9 +414,9 @@ mod tests {
         let x = Tensor::from_slice(&data, vec![3, 5]).unwrap();
         let parts = x.split_with_sizes(&[2, 1, 2], 1);
         assert_eq!(parts.len(), 3);
-        assert_eq!(parts[0].shape().dims, vec![3, 2]);
-        assert_eq!(parts[1].shape().dims, vec![3, 1]);
-        assert_eq!(parts[2].shape().dims, vec![3, 2]);
+        assert_eq!(parts[0].shape().dims(), vec![3, 2]);
+        assert_eq!(parts[1].shape().dims(), vec![3, 1]);
+        assert_eq!(parts[2].shape().dims(), vec![3, 2]);
         assert_eq!(parts[1].get(&[2, 0]), (2 * 5 + 2) as f32 * 0.1);
     }
 
@@ -414,7 +430,7 @@ mod tests {
         // Reconstruct full tensor via concatenation then backward with implicit ones
         let mut full = Tensor::cat(&parts, 1);
         full.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // All positions receive 1.0
         for i in 0..x.size() {
             assert_eq!(gx.get(&[i / 5, i % 5]), 1.0);
@@ -431,7 +447,7 @@ mod tests {
         // Concatenate then backward to avoid view/contig mismatches
         let mut full = Tensor::cat(&parts, 0);
         full.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         for i in 0..6 {
             assert_eq!(gx.get(&[i]), 1.0);
         }

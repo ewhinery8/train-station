@@ -28,6 +28,7 @@ cuda = []   # Enable CUDA support via FFI (requires CUDA toolkit and bindings)
 name = "train_station"
 path = "src/lib.rs"
 
+
 [[example]]
 name = "basic_linear_layer"
 path = "examples/neural_networks/basic_linear_layer.rs"

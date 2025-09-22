@@ -1,331 +1,320 @@
-use crate::tensor::core::Tensor;
+use super::super::utils::reduce_matmul_grad_to_operand_shape;
+use crate::tensor::ops::matmul::dispatch::MatMulKernels;
+use crate::Tensor;
 
+/// Apply gradient computation for matrix multiplication operations
+///
+/// This function computes gradients for all supported matmul operation types:
+/// - 1D @ 1D: Dot product gradients
+/// - 1D @ 2D: Vector-matrix multiplication gradients  
+/// - 2D @ 1D: Matrix-vector multiplication gradients
+/// - 2D @ 2D: Matrix-matrix multiplication gradients
+/// - ND @ ND: Batched matrix multiplication gradients with broadcasting
+///
+/// The implementation leverages existing matmul kernels for efficient gradient computation
+/// and handles shape validation and broadcasting correctly.
+///
+/// # Arguments
+/// * `left_operand` - Left operand tensor used in forward pass
+/// * `right_operand` - Right operand tensor used in forward pass  
+/// * `requires_grad` - Tuple indicating which operands require gradients (left, right)
+/// * `grad_output` - Gradient flowing back from the output
+///
+/// # Returns
+/// Vector containing gradients for left and right operands (None if gradient not required)
 pub(crate) fn apply_matmul(
     left_operand: &Tensor,
     right_operand: &Tensor,
     requires_grad: (bool, bool),
     grad_output: &Tensor,
 ) -> Vec<Option<Tensor>> {
-    let left_shape = left_operand.shape();
-    let right_shape = right_operand.shape();
-    let _grad_shape = grad_output.shape();
+    let left_shape = left_operand.shape().dims();
+    let right_shape = right_operand.shape().dims();
+    let op_type = MatMulKernels::classify_operation(left_shape, right_shape);
 
-    // Handle different matmul patterns
-    match (left_shape.rank(), right_shape.rank()) {
-        // 1D @ 1D (dot product): a • b = scalar
-        // grad_a = grad_output * b, grad_b = grad_output * a
-        (1, 1) => {
-            let grad_left = if requires_grad.0 {
-                Some(grad_output.mul_tensor(right_operand))
-            } else {
-                None
-            };
-            let grad_right = if requires_grad.1 {
-                Some(grad_output.mul_tensor(left_operand))
-            } else {
-                None
-            };
-            vec![grad_left, grad_right]
-        }
+    let mut gradients = Vec::new();
 
-        // 1D @ 2D (vector @ matrix): v @ M = result_vector
-        // grad_v = grad_output @ M^T, grad_M = v^T @ grad_output (but v is 1D, so outer product)
-        (1, 2) => {
-            let grad_left = if requires_grad.0 {
-                // Manually compute grad_output @ M^T to ensure correctness
-                let m_transposed = right_operand.t();
-                Some(grad_output.matmul(&m_transposed))
-            } else {
-                None
-            };
-            let grad_right = if requires_grad.1 {
-                // For grad_right, we need outer product: left_operand[i] * grad_output[j] = grad_M[i,j]
-                Some(compute_outer_product(left_operand, grad_output))
-            } else {
-                None
-            };
-            vec![grad_left, grad_right]
-        }
+    // Compute left gradient if required
+    let grad_left = if requires_grad.0 {
+        Some(compute_left_gradient(
+            left_operand,
+            right_operand,
+            grad_output,
+            &op_type,
+        ))
+    } else {
+        None
+    };
 
-        // 2D @ 1D (matrix @ vector): M @ v = result_vector
-        // grad_M = grad_output @ v^T (outer product), grad_v = M^T @ grad_output
-        (2, 1) => {
-            let grad_left = if requires_grad.0 {
-                // For grad_left, we need outer product: grad_output[i] * right_operand[j] = grad_M[i,j]
-                Some(compute_outer_product(grad_output, right_operand))
-            } else {
-                None
-            };
-            let grad_right = if requires_grad.1 {
-                Some(left_operand.t().matmul(grad_output))
-            } else {
-                None
-            };
-            vec![grad_left, grad_right]
-        }
+    // Compute right gradient if required
+    let grad_right = if requires_grad.1 {
+        Some(compute_right_gradient(
+            left_operand,
+            right_operand,
+            grad_output,
+            &op_type,
+        ))
+    } else {
+        None
+    };
 
-        // 2D @ 2D (matrix @ matrix): standard case
-        (2, 2) => {
-            let grad_left = if requires_grad.0 {
-                Some(grad_output.matmul(&right_operand.t()))
-            } else {
-                None
-            };
-            let grad_right = if requires_grad.1 {
-                Some(left_operand.t().matmul(grad_output))
-            } else {
-                None
-            };
-            vec![grad_left, grad_right]
-        }
+    gradients.push(grad_left);
+    gradients.push(grad_right);
 
-        // Special case: 3D @ 2D (mixed dimensionality) with singleton leading dimension
-        (3, 2) if left_shape.dims[0] == 1 => {
-            // For [1, m, k] @ [k, n] -> [m, n] (after squeezing)
-            // Left gradient: [m, n] @ [n, k] -> [m, k], then unsqueeze to [1, m, k]
-            // Right gradient: [1, k, m] @ [m, n] -> [k, n] (with proper broadcasting)
-
-            let grad_left = if requires_grad.0 {
-                let grad_left_2d = grad_output.matmul(&right_operand.t()); // [m, n] @ [n, k] -> [m, k]
-                Some(grad_left_2d.unsqueeze(0)) // [m, k] -> [1, m, k]
-            } else {
-                None
-            };
-
-            let grad_right = if requires_grad.1 {
-                let left_t = left_operand.transpose(1, 2); // [1, m, k] -> [1, k, m]
-                let left_2d = left_t.squeeze(Some(0)); // [1, k, m] -> [k, m]
-                Some(left_2d.matmul(grad_output)) // [k, m] @ [m, n] -> [k, n]
-            } else {
-                None
-            };
-
-            vec![grad_left, grad_right]
-        }
-
-        // Special case: 3D @ 3D with leading singleton dimension
-        (3, 3) if left_shape.dims[0] == 1 || right_shape.dims[0] == 1 => {
-            // Handle cases like [1, 3, 4] @ [2, 4, 5] or [3, 4, 5] @ [1, 5, 6]
-            let grad_left = if requires_grad.0 {
-                let right_t = transpose_last_two_dims(right_operand);
-                // Ensure transpose is contiguous for correct computation
-                let right_t_contiguous = if right_t.is_contiguous() {
-                    right_t
-                } else {
-                    right_t.contiguous()
-                };
-                let grad_left_raw = grad_output.matmul(&right_t_contiguous);
-                let reduced_grad_left =
-                    reduce_gradient_to_original_shape(&grad_left_raw, &left_shape.dims);
-                Some(reduced_grad_left)
-            } else {
-                None
-            };
-            let grad_right = if requires_grad.1 {
-                let left_t = transpose_last_two_dims(left_operand);
-                // Ensure transpose is contiguous for correct computation
-                let left_t_contiguous = if left_t.is_contiguous() {
-                    left_t
-                } else {
-                    left_t.contiguous()
-                };
-                let grad_right_raw = left_t_contiguous.matmul(grad_output);
-                let reduced_grad_right =
-                    reduce_gradient_to_original_shape(&grad_right_raw, &right_shape.dims);
-                Some(reduced_grad_right)
-            } else {
-                None
-            };
-            vec![grad_left, grad_right]
-        }
-
-        // Special case: 2D @ 3D (mixed dimensionality) with singleton leading dimension
-        (2, 3) if right_shape.dims[0] == 1 => {
-            // For [m, k] @ [1, k, n] -> [m, n] (after squeezing)
-            // Left gradient: [m, n] @ [1, n, k] -> [m, k] (with proper broadcasting)
-            // Right gradient: [k, m] @ [m, n] -> [k, n], then unsqueeze to [1, k, n]
-
-            let grad_left = if requires_grad.0 {
-                // grad_output: [m, n], right_operand: [1, k, n] -> transpose to [1, n, k]
-                let right_t = right_operand.transpose(1, 2); // [1, k, n] -> [1, n, k]
-
-                // We need to handle the broadcasting manually for correct gradient computation
-                // right_t is [1, n, k], we want to extract [n, k] and multiply each row of grad_output with it
-                let right_2d = right_t.squeeze(Some(0)); // [1, n, k] -> [n, k]
-                Some(grad_output.matmul(&right_2d)) // [m, n] @ [n, k] -> [m, k]
-            } else {
-                None
-            };
-
-            let grad_right = if requires_grad.1 {
-                // left_operand: [m, k], grad_output: [m, n]
-                // We need: [k, m] @ [m, n] -> [k, n], then unsqueeze to [1, k, n]
-                let left_t = left_operand.t(); // [m, k] -> [k, m]
-                let grad_right_2d = left_t.matmul(grad_output); // [k, m] @ [m, n] -> [k, n]
-                                                                // Unsqueeze to match original shape [1, k, n]
-                Some(grad_right_2d.unsqueeze(0))
-            } else {
-                None
-            };
-
-            vec![grad_left, grad_right]
-        }
-
-        // Higher dimensional cases (batched matmul)
-        _ => {
-            // For proper batched gradient computation, we need to use the transpose of the last two dimensions
-            // but preserve the batch structure correctly
-            let grad_left = if requires_grad.0 {
-                // For grad_left: grad_output @ right^T
-                // We transpose only the last two dimensions of right_operand
-                let right_t = transpose_last_two_dims(right_operand);
-                // Ensure transpose result is contiguous for correct matmul computation
-                let right_t_contiguous = if right_t.is_contiguous() {
-                    right_t
-                } else {
-                    right_t.contiguous()
-                };
-                let grad_left_raw = grad_output.matmul(&right_t_contiguous);
-
-                // Apply shape reduction if broadcasting occurred
-                let reduced_grad_left =
-                    reduce_gradient_to_original_shape(&grad_left_raw, &left_shape.dims);
-                Some(reduced_grad_left)
-            } else {
-                None
-            };
-
-            let grad_right = if requires_grad.1 {
-                // For grad_right: left^T @ grad_output
-                // We transpose only the last two dimensions of left_operand
-                let left_t = transpose_last_two_dims(left_operand);
-                // Ensure transpose result is contiguous for correct matmul computation
-                let left_t_contiguous = if left_t.is_contiguous() {
-                    left_t
-                } else {
-                    left_t.contiguous()
-                };
-                let grad_right_raw = left_t_contiguous.matmul(grad_output);
-
-                // Apply shape reduction if broadcasting occurred
-                let reduced_grad_right =
-                    reduce_gradient_to_original_shape(&grad_right_raw, &right_shape.dims);
-                Some(reduced_grad_right)
-            } else {
-                None
-            };
-
-            vec![grad_left, grad_right]
-        }
-    }
+    gradients
 }
 
-/// Compute outer product of two 1D tensors: a[i] * b[j] = result[i,j]
-fn compute_outer_product(a: &Tensor, b: &Tensor) -> Tensor {
-    let a_shape = a.shape();
-    let b_shape = b.shape();
+/// Compute gradient for left operand
+fn compute_left_gradient(
+    left_operand: &Tensor,
+    right_operand: &Tensor,
+    grad_output: &Tensor,
+    op_type: &crate::tensor::ops::matmul::dispatch::MatMulOpType,
+) -> Tensor {
+    use crate::tensor::ops::matmul::dispatch::MatMulOpType;
 
-    assert_eq!(
-        a_shape.rank(),
-        1,
-        "First tensor must be 1D for outer product"
-    );
-    assert_eq!(
-        b_shape.rank(),
-        1,
-        "Second tensor must be 1D for outer product"
-    );
+    let grad = match op_type {
+        MatMulOpType::Dot1D1D => {
+            // 1D @ 1D: grad_a = grad_out * b (element-wise multiply)
+            // grad_out is scalar, b is vector -> broadcast multiply
+            let grad_out_scalar = grad_output.value(); // Extract scalar value
+            right_operand.mul_scalar(grad_out_scalar)
+        }
+        MatMulOpType::Vec1D2D => {
+            // 1D @ 2D: grad_a = grad_out @ b.T
+            // grad_out: [n], b: [k, n] -> grad_a: [k]
+            let b_transposed = right_operand.transpose(0, 1);
+            // Always make transposed tensor contiguous to ensure correct computation
+            let b_transposed_contiguous = b_transposed.contiguous();
+            crate::gradtrack::with_no_grad(|| grad_output.matmul(&b_transposed_contiguous))
+        }
+        MatMulOpType::Mat2D1D => {
+            // 2D @ 1D: grad_a = grad_out.outer(b) = grad_out @ b.T
+            // grad_out: [m], b: [k] -> grad_a: [m, k]
+            // Reshape grad_out to [m, 1] and b to [1, k] for matmul
+            let grad_reshaped = grad_output.view(vec![grad_output.size() as i32, 1]);
+            let b_reshaped = right_operand.view(vec![1, right_operand.size() as i32]);
+            crate::gradtrack::with_no_grad(|| grad_reshaped.matmul(&b_reshaped))
+        }
+        MatMulOpType::Mat2D2D => {
+            // 2D @ 2D: grad_a = grad_out @ b.T
+            let b_transposed = right_operand.transpose(0, 1);
+            // Always make transposed tensor contiguous to ensure correct computation
+            let b_transposed_contiguous = b_transposed.contiguous();
+            crate::gradtrack::with_no_grad(|| grad_output.matmul(&b_transposed_contiguous))
+        }
+        MatMulOpType::BatchedND => {
+            // Generalized ND gradient using unified classifier and reshapes
+            compute_batched_left_gradient_general(left_operand, right_operand, grad_output)
+        }
+    };
 
-    let m = a_shape.dims[0];
-    let n = b_shape.dims[0];
+    // Reduce broadcasted batch dims to match the left operand shape using
+    // matmul-aware reduction with correct keep_last (1 for vector-like, 2 for matrix-like)
+    let left_shape = left_operand.shape().dims();
+    let right_shape = right_operand.shape().dims();
+    let (l_mat_dims, _r_mat_dims) = crate::Tensor::classify_nd_matmul_dims(left_shape, right_shape);
+    reduce_matmul_grad_to_operand_shape(&grad, left_shape, l_mat_dims)
+}
 
-    let mut result = Tensor::new(vec![m, n]);
+/// Compute gradient for right operand
+fn compute_right_gradient(
+    left_operand: &Tensor,
+    right_operand: &Tensor,
+    grad_output: &Tensor,
+    op_type: &crate::tensor::ops::matmul::dispatch::MatMulOpType,
+) -> Tensor {
+    use crate::tensor::ops::matmul::dispatch::MatMulOpType;
 
-    unsafe {
-        let a_ptr = a.as_ptr();
-        let b_ptr = b.as_ptr();
-        let result_ptr = result.as_mut_ptr();
+    let grad = match op_type {
+        MatMulOpType::Dot1D1D => {
+            // 1D @ 1D: grad_b = grad_out * a (element-wise multiply)
+            // grad_out is scalar, a is vector -> broadcast multiply
+            let grad_out_scalar = grad_output.value(); // Extract scalar value
+            left_operand.mul_scalar_optimized(grad_out_scalar)
+        }
+        MatMulOpType::Vec1D2D => {
+            // 1D @ 2D: grad_b = a.outer(grad_out) = a.T @ grad_out
+            // a: [k], grad_out: [n] -> grad_b: [k, n]
+            // Reshape a to [k, 1] and grad_out to [1, n] for matmul
+            let a_reshaped = left_operand.view(vec![left_operand.size() as i32, 1]);
+            let grad_reshaped = grad_output.view(vec![1, grad_output.size() as i32]);
+            crate::gradtrack::with_no_grad(|| a_reshaped.matmul(&grad_reshaped))
+        }
+        MatMulOpType::Mat2D1D => {
+            // 2D @ 1D: grad_b = a.T @ grad_out
+            let a_transposed = left_operand.transpose(0, 1);
+            // Always make transposed tensor contiguous to ensure correct computation
+            let a_transposed_contiguous = a_transposed.contiguous();
+            crate::gradtrack::with_no_grad(|| a_transposed_contiguous.matmul(grad_output))
+        }
+        MatMulOpType::Mat2D2D => {
+            // 2D @ 2D: grad_b = a.T @ grad_out
+            let a_transposed = left_operand.transpose(0, 1);
+            // Always make transposed tensor contiguous to ensure correct computation
+            let a_transposed_contiguous = a_transposed.contiguous();
+            crate::gradtrack::with_no_grad(|| a_transposed_contiguous.matmul(grad_output))
+        }
+        MatMulOpType::BatchedND => {
+            // Generalized ND gradient using unified classifier and reshapes
+            compute_batched_right_gradient_general(left_operand, right_operand, grad_output)
+        }
+    };
 
-        for i in 0..m {
-            for j in 0..n {
-                let idx = i * n + j;
-                *result_ptr.add(idx) = *a_ptr.add(i) * *b_ptr.add(j);
+    // Matmul-aware reduction with correct keep_last (1 for vector-like, 2 for matrix-like)
+    let right_shape = right_operand.shape().dims();
+    let left_shape = left_operand.shape().dims();
+    let (_l_mat_dims, r_mat_dims) = crate::Tensor::classify_nd_matmul_dims(left_shape, right_shape);
+    reduce_matmul_grad_to_operand_shape(&grad, right_shape, r_mat_dims)
+}
+
+fn compute_batched_left_gradient_general(
+    left_operand: &Tensor,
+    right_operand: &Tensor,
+    grad_output: &Tensor,
+) -> Tensor {
+    let left_shape = left_operand.shape().dims();
+    let right_shape = right_operand.shape().dims();
+
+    let (l_md, r_md) = crate::Tensor::classify_nd_matmul_dims(left_shape, right_shape);
+
+    crate::gradtrack::with_no_grad(|| {
+        // Build B^T or B-view so that matmul(go_use, b_use) computes raw left grad
+        let b_use = if r_md == 2 {
+            let rr = right_shape.len();
+            right_operand.transpose(rr - 2, rr - 1).contiguous()
+        } else {
+            // r_md == 1: view as [..., 1, K]
+            let mut dims: Vec<i32> = right_shape.iter().map(|&d| d as i32).collect();
+            dims.push(1); // [..., K, 1] but we need [..., 1, K]
+                          // Build [...batch..., 1, K]
+            let mut view_dims = Vec::with_capacity(dims.len());
+            if dims.len() == 1 {
+                // Right is [K]
+                view_dims.push(1);
+                view_dims.push(dims[0]);
+            } else {
+                // [B..., K] -> [B..., 1, K]
+                view_dims.extend_from_slice(
+                    &right_shape[..right_shape.len() - 1]
+                        .iter()
+                        .map(|&d| d as i32)
+                        .collect::<Vec<i32>>(),
+                );
+                view_dims.push(1);
+                view_dims.push(*right_shape.last().unwrap() as i32);
+            }
+            right_operand.view(view_dims)
+        };
+
+        // Prepare grad_output to appropriate 2D form when needed
+        let go_use = if l_md == 2 {
+            if r_md == 1 {
+                // [..., M] -> [..., M, 1]
+                let mut dims: Vec<i32> = grad_output
+                    .shape()
+                    .dims()
+                    .iter()
+                    .map(|&d| d as i32)
+                    .collect();
+                dims.push(1);
+                grad_output.view(dims)
+            } else {
+                grad_output.clone()
+            }
+        } else {
+            // l_md == 1
+            if r_md == 2 {
+                // [..., N] -> [..., 1, N]
+                let go_dims = grad_output.shape().dims();
+                if go_dims.is_empty() {
+                    grad_output.view(vec![1, 1])
+                } else {
+                    let mut dims: Vec<i32> = go_dims[..go_dims.len() - 1]
+                        .iter()
+                        .map(|&d| d as i32)
+                        .collect();
+                    dims.push(1);
+                    dims.push(*go_dims.last().unwrap() as i32);
+                    grad_output.view(dims)
+                }
+            } else {
+                // r_md == 1: [...batch...] -> [...batch..., 1, 1]
+                let mut dims: Vec<i32> = grad_output
+                    .shape()
+                    .dims()
+                    .iter()
+                    .map(|&d| d as i32)
+                    .collect();
+                dims.push(1);
+                dims.push(1);
+                grad_output.view(dims)
+            }
+        };
+
+        go_use.matmul(&b_use)
+    })
+}
+
+/// Compute batched right gradient for mixed dimensionality cases
+fn compute_batched_right_gradient_general(
+    left_operand: &Tensor,
+    right_operand: &Tensor,
+    grad_output: &Tensor,
+) -> Tensor {
+    let left_shape = left_operand.shape().dims();
+    let right_shape = right_operand.shape().dims();
+
+    let (l_md, r_md) = crate::Tensor::classify_nd_matmul_dims(left_shape, right_shape);
+
+    crate::gradtrack::with_no_grad(|| {
+        // Build A^T or A-view so that matmul(a_use, go_use) computes raw right grad
+        let a_use = if l_md == 2 {
+            let lr = left_shape.len();
+            left_operand.transpose(lr - 2, lr - 1).contiguous()
+        } else {
+            // l_md == 1: [..., K] -> [..., K, 1]
+            let mut dims: Vec<i32> = left_shape.iter().map(|&d| d as i32).collect();
+            dims.push(1);
+            left_operand.view(dims)
+        };
+
+        // Prepare grad_output appropriately
+        let go_use = if r_md == 2 {
+            if l_md == 1 {
+                // [..., N] -> [..., 1, N]
+                let go_dims = grad_output.shape().dims();
+                let mut dims: Vec<i32> = go_dims[..go_dims.len() - 1]
+                    .iter()
+                    .map(|&d| d as i32)
+                    .collect();
+                dims.push(1);
+                dims.push(*go_dims.last().unwrap() as i32);
+                grad_output.view(dims)
+            } else {
+                grad_output.clone()
+            }
+        } else {
+            // r_md == 1: need [..., M, 1]
+            let go_dims = grad_output.shape().dims();
+            if go_dims.is_empty() {
+                grad_output.view(vec![1, 1])
+            } else {
+                let mut dims: Vec<i32> = go_dims.iter().map(|&d| d as i32).collect();
+                dims.push(1);
+                grad_output.view(dims)
+            }
+        };
+
+        let mut raw = a_use.matmul(&go_use);
+        // Ensure the last `keep_last` dims match the operand's matrix dims order.
+        // For r_md == 1, raw has trailing dims [K, 1]; swap to [1, K] so keep_last=1 refers to K.
+        if r_md == 1 {
+            let rr = raw.shape().dims().len();
+            if rr >= 2 {
+                raw = raw.transpose(rr - 2, rr - 1).contiguous();
             }
         }
-    }
-
-    result
-}
-
-/// Transpose the last two dimensions of a tensor (for batched operations)
-fn transpose_last_two_dims(tensor: &Tensor) -> Tensor {
-    let shape = tensor.shape();
-    let rank = shape.rank();
-
-    if rank < 2 {
-        panic!(
-            "Cannot transpose last two dimensions of tensor with rank {}",
-            rank
-        );
-    }
-
-    tensor.transpose(rank - 2, rank - 1)
-}
-
-/// Reduce gradient tensor back to the original shape by summing over broadcasted dimensions
-fn reduce_gradient_to_original_shape(grad_tensor: &Tensor, original_shape: &[usize]) -> Tensor {
-    let grad_shape = grad_tensor.shape();
-    let grad_dims = &grad_shape.dims;
-
-    // eprintln!("=== DEBUG reduce_gradient_to_original_shape ===");
-    // eprintln!("grad_tensor shape: {:?}", grad_dims);
-    // eprintln!("original_shape: {:?}", original_shape);
-    // eprintln!("grad_tensor data[0..4]: {:?}", &grad_tensor.data()[0..4.min(grad_tensor.data().len())]);
-
-    // If shapes are already the same, no reduction needed
-    if grad_dims == original_shape {
-        return grad_tensor.clone();
-    }
-
-    let mut result = grad_tensor.clone();
-    let grad_rank = grad_dims.len();
-    let orig_rank = original_shape.len();
-
-    // For the special case where we need to reduce from 3D to 2D (e.g., [3, 4] @ [2, 4, 5])
-    // The gradient tensor might be [2, 3, 4] and we need to sum to get [3, 4]
-    if grad_rank == 3 && orig_rank == 2 {
-        // Sum over the first dimension (batch dimension)
-        result = result.sum_dims(&[0], false);
-        return result;
-    }
-
-    // General case: sum over leading dimensions that were added during broadcasting
-    if grad_rank > orig_rank {
-        for _ in 0..(grad_rank - orig_rank) {
-            result = result.sum_dims(&[0], false);
-        }
-    }
-
-    // Handle dimension size mismatches (where size was 1 in original but broadcasted)
-    let mut dims_to_reduce = Vec::new();
-    {
-        let current_shape = result.shape();
-        for (i, (&current_size, &orig_size)) in current_shape
-            .dims
-            .iter()
-            .zip(original_shape.iter())
-            .enumerate()
-        {
-            if orig_size == 1 && current_size > 1 {
-                dims_to_reduce.push(i);
-            }
-        }
-    }
-
-    // Apply reductions (in reverse order to maintain dimension indices)
-    for &dim in dims_to_reduce.iter().rev() {
-        result = result.sum_dims(&[dim], true);
-    }
-
-    result
+        raw
+    })
 }

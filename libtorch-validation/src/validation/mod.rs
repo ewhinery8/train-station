@@ -1,4 +1,5 @@
 pub mod core;
+pub mod gradtrack;
 pub mod optimizers;
 pub mod tensor;
 

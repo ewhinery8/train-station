@@ -36,7 +36,7 @@
 //! // Make it contiguous again
 //! let contiguous = transposed.contiguous();
 //! assert!(contiguous.is_contiguous());
-//! assert_eq!(contiguous.shape().dims, vec![2, 2]);
+//! assert_eq!(contiguous.shape().dims(), vec![2, 2]);
 //! ```
 //!
 //! ```
@@ -59,6 +59,7 @@
 //! backward passes.
 
 use crate::gradtrack::{GradEngine, GradFn};
+use crate::tensor::iterator::collect::optimized_copy;
 use crate::tensor::Tensor;
 
 impl Tensor {
@@ -87,7 +88,7 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let contiguous = tensor.contiguous();
     /// assert!(contiguous.is_contiguous());
-    /// assert_eq!(contiguous.shape().dims, vec![2, 2]);
+    /// assert_eq!(contiguous.shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// ```
@@ -129,7 +130,7 @@ impl Tensor {
                 cloned.set_requires_grad(true);
                 // Register gradient function even for already-contiguous tensors
                 let grad_fn = GradFn::Contiguous {
-                    input_shape: self.shape().dims.clone(),
+                    input_shape: self.shape().dims().to_vec(),
                 };
                 cloned.set_grad_fn(grad_fn.clone());
                 GradEngine::register_operation(cloned.id(), vec![self.id()], grad_fn);
@@ -138,7 +139,7 @@ impl Tensor {
         }
 
         // Create new contiguous tensor and copy via optimized methods
-        let mut result = Tensor::new(self.shape().dims.clone());
+        let mut result = Tensor::new(self.shape().dims().to_vec());
 
         unsafe {
             self.copy_to_contiguous_optimized(&mut result);
@@ -148,7 +149,7 @@ impl Tensor {
         if self.requires_grad() {
             result.set_requires_grad(true);
             let grad_fn = GradFn::Contiguous {
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -176,21 +177,68 @@ impl Tensor {
     unsafe fn copy_to_contiguous_optimized(&self, result: &mut Tensor) {
         let size = self.size();
         let rank = self.shape().rank();
-        let _src_ptr = self.as_ptr();
-        let _dst_ptr = result.as_mut_ptr();
 
-        // For simple 1D tensors or very small tensors, use simple copy
-        if rank <= 1 || size <= 64 {
-            self.copy_to_contiguous_simple(result, rank);
+        if size == 0 {
             return;
         }
 
-        // For larger multi-dimensional tensors, use optimized stride-aware copy
-        if size >= 1024 {
-            self.copy_to_contiguous_large(result, rank);
-        } else {
-            self.copy_to_contiguous_medium(result, rank);
+        // Fast path: if the last dimension is contiguous in the source view,
+        // copy row-by-row using SIMD-optimized contiguous copies.
+        if rank >= 1 && self.stride(rank - 1) == 1 {
+            let dims = self.shape().dims();
+            let row_len = dims[rank - 1];
+
+            // Number of outer rows to copy (all dims except the last)
+            let outer: usize = if rank == 1 {
+                1
+            } else {
+                dims[..rank - 1].iter().product()
+            };
+
+            let src_base = self.as_ptr();
+            let dst_base = result.as_mut_ptr();
+            let strides = self.strides();
+
+            // Coordinate vector for outer dimensions (exclude last)
+            let mut coords = vec![0usize; rank];
+
+            for outer_idx in 0..outer {
+                // Compute multi-index over dims[0..rank-1) in row-major order
+                if rank > 1 {
+                    let mut tmp = outer_idx;
+                    for i in (0..rank - 1).rev() {
+                        let d = dims[i];
+                        coords[i] = if d == 0 { 0 } else { tmp % d };
+                        if d != 0 {
+                            tmp /= d;
+                        }
+                    }
+                }
+                coords[rank - 1] = 0; // start of the contiguous row
+
+                // Compute source offset via strides
+                let mut src_off = 0usize;
+                for i in 0..rank {
+                    src_off += coords[i] * strides[i];
+                }
+
+                // Destination offset: linear index over outer dims times row_len
+                let mut dst_row_index = 0usize;
+                if rank > 1 {
+                    for i in 0..rank - 1 {
+                        dst_row_index = dst_row_index * dims[i] + coords[i];
+                    }
+                }
+                let dst_off = dst_row_index * row_len;
+
+                // Copy the entire row as a contiguous block
+                optimized_copy(src_base.add(src_off), dst_base.add(dst_off), row_len);
+            }
+            return;
         }
+
+        // Fallback: general coordinate-based copy (works for any strided view)
+        self.copy_to_contiguous_simple(result, rank);
     }
 
     /// Simple copy for small tensors or 1D tensors
@@ -218,133 +266,13 @@ impl Tensor {
             let mut coords = vec![0usize; rank];
             let mut tmp = dst_idx;
             for i in (0..rank).rev() {
-                let dim_size = self.shape().dims[i];
+                let dim_size = self.shape().dims()[i];
                 coords[i] = tmp % dim_size;
                 tmp /= dim_size;
             }
             let src_off = self.shape().offset(&coords);
             *dst_ptr.add(dst_idx) = *src_ptr.add(src_off);
         }
-    }
-
-    /// Optimized copy for medium-sized tensors with unrolling
-    ///
-    /// This function uses loop unrolling to improve performance for
-    /// medium-sized tensors by reducing loop overhead and improving
-    /// instruction-level parallelism.
-    ///
-    /// # Arguments
-    ///
-    /// * `result` - The destination tensor
-    /// * `rank` - The rank of the tensor
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure both tensors are valid and properly allocated.
-    #[inline]
-    unsafe fn copy_to_contiguous_medium(&self, result: &mut Tensor, rank: usize) {
-        let size = self.size();
-        let src_ptr = self.as_ptr();
-        let dst_ptr = result.as_mut_ptr();
-        let unroll_factor = 4;
-        let unroll_count = size / unroll_factor;
-        let mut dst_idx = 0;
-
-        // Unrolled loop for better performance
-        for _ in 0..unroll_count {
-            for unroll_i in 0..unroll_factor {
-                let coords = self.linear_to_coords(dst_idx + unroll_i, rank);
-                let src_off = self.shape().offset(&coords);
-                *dst_ptr.add(dst_idx + unroll_i) = *src_ptr.add(src_off);
-            }
-            dst_idx += unroll_factor;
-        }
-
-        // Handle remaining elements
-        for i in dst_idx..size {
-            let coords = self.linear_to_coords(i, rank);
-            let src_off = self.shape().offset(&coords);
-            *dst_ptr.add(i) = *src_ptr.add(src_off);
-        }
-    }
-
-    /// Cache-optimized copy for large tensors with blocking
-    ///
-    /// This function uses blocking to improve cache locality for large tensors.
-    /// It processes the tensor in blocks to maximize cache hit rates and
-    /// combines blocking with loop unrolling for optimal performance.
-    ///
-    /// # Arguments
-    ///
-    /// * `result` - The destination tensor
-    /// * `rank` - The rank of the tensor
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure both tensors are valid and properly allocated.
-    #[inline]
-    unsafe fn copy_to_contiguous_large(&self, result: &mut Tensor, rank: usize) {
-        let size = self.size();
-        let src_ptr = self.as_ptr();
-        let dst_ptr = result.as_mut_ptr();
-
-        // Use blocking to improve cache locality
-        let block_size = 1024; // Process 1024 elements per block
-        let num_blocks = (size + block_size - 1) / block_size;
-
-        for block in 0..num_blocks {
-            let start_idx = block * block_size;
-            let end_idx = (start_idx + block_size).min(size);
-            let block_len = end_idx - start_idx;
-
-            // Process block with unrolling
-            let unroll_factor = 4;
-            let unroll_count = block_len / unroll_factor;
-            let mut local_idx = 0;
-
-            for _ in 0..unroll_count {
-                for unroll_i in 0..unroll_factor {
-                    let dst_idx = start_idx + local_idx + unroll_i;
-                    let coords = self.linear_to_coords(dst_idx, rank);
-                    let src_off = self.shape().offset(&coords);
-                    *dst_ptr.add(dst_idx) = *src_ptr.add(src_off);
-                }
-                local_idx += unroll_factor;
-            }
-
-            // Handle remaining elements in this block
-            for i in local_idx..block_len {
-                let dst_idx = start_idx + i;
-                let coords = self.linear_to_coords(dst_idx, rank);
-                let src_off = self.shape().offset(&coords);
-                *dst_ptr.add(dst_idx) = *src_ptr.add(src_off);
-            }
-        }
-    }
-
-    /// Helper function to convert linear index to coordinates
-    ///
-    /// Converts a linear (flat) index into multi-dimensional coordinates
-    /// based on the tensor's shape. This is used for coordinate-based
-    /// memory access in non-contiguous tensors.
-    ///
-    /// # Arguments
-    ///
-    /// * `idx` - The linear index to convert
-    /// * `rank` - The rank of the tensor
-    ///
-    /// # Returns
-    ///
-    /// A vector of coordinates representing the multi-dimensional position
-    #[inline]
-    fn linear_to_coords(&self, mut idx: usize, rank: usize) -> Vec<usize> {
-        let mut coords = vec![0usize; rank];
-        for i in (0..rank).rev() {
-            let dim_size = self.shape().dims[i];
-            coords[i] = idx % dim_size;
-            idx /= dim_size;
-        }
-        coords
     }
 }
 
@@ -359,7 +287,7 @@ mod tests {
         // Test that contiguous() returns a proper copy
         let contiguous = tensor.contiguous();
         assert!(contiguous.is_contiguous());
-        assert_eq!(contiguous.shape().dims, tensor.shape().dims);
+        assert_eq!(contiguous.shape().dims(), tensor.shape().dims());
 
         // Verify data is preserved
         assert_eq!(contiguous.get(&[0, 0]), 1.0);
@@ -373,7 +301,7 @@ mod tests {
         // For already contiguous tensors, should return a clone
         let contiguous = tensor.contiguous();
         assert!(contiguous.is_contiguous());
-        assert_eq!(contiguous.shape().dims, tensor.shape().dims);
+        assert_eq!(contiguous.shape().dims(), tensor.shape().dims());
         assert_eq!(contiguous.size(), tensor.size());
     }
 
@@ -406,8 +334,8 @@ mod tests {
         result.backward(None);
 
         // Check that the original tensor received gradients
-        let grad = x.grad_by_value().expect("Gradient should exist");
-        assert_eq!(grad.shape().dims, vec![2, 2]);
+        let grad = x.grad_owned().expect("Gradient should exist");
+        assert_eq!(grad.shape().dims(), vec![2, 2]);
 
         // All gradients should be 1.0 since sum operation
         for i in 0..2 {
@@ -423,7 +351,7 @@ mod tests {
         let contiguous = tensor.contiguous();
 
         assert!(contiguous.is_contiguous());
-        assert_eq!(contiguous.shape().dims, vec![3]);
+        assert_eq!(contiguous.shape().dims(), vec![3]);
 
         // Verify data preservation
         for i in 0..3 {
@@ -438,7 +366,7 @@ mod tests {
         let contiguous = tensor.contiguous();
 
         assert!(contiguous.is_contiguous());
-        assert_eq!(contiguous.shape().dims, vec![2, 3, 4]);
+        assert_eq!(contiguous.shape().dims(), vec![2, 3, 4]);
         assert_eq!(contiguous.size(), 24);
     }
 }

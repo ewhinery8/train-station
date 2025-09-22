@@ -60,7 +60,7 @@ impl ViewPerformanceTester {
     pub fn test_view_1d_to_2d(&mut self, shape: &[usize]) -> Option<PerformanceResult> {
         assert_eq!(shape.len(), 1);
         let n = shape[0];
-        if n % 2 != 0 {
+        if !n.is_multiple_of(2) {
             return None;
         }
         let shape_param = format!("{:?}", shape);

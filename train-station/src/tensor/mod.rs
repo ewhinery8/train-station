@@ -1,20 +1,26 @@
 //! Tensor module for high-performance multi-dimensional data structures
 //!
-//! This module provides the foundational building blocks for tensor operations,
-//! organized into specialized submodules for maximum performance and maintainability.
+//! This module provides the foundational building blocks for tensor operations.
+//! Public API is intentionally Tensor-centric: developers and agents should
+//! interact primarily through methods on `Tensor` (and re-exported helpers).
+//!
+//! Internally, the implementation is organized into specialized submodules for
+//! maximum performance and maintainability. These submodules are not part of the
+//! public API surface.
+//!
 //! The tensor system is designed for zero-cost abstractions with SIMD optimization
 //! and comprehensive automatic differentiation support.
 //!
 //! # Organization
 //!
-//! The tensor module is organized into specialized submodules:
-//! - **`core`**: Main `Tensor` struct with memory management and operator overloading
-//! - **`shape`**: Dimension management, stride calculation, and broadcasting
-//! - **`ops`**: Mathematical operations (add, sub, mul, div, matmul) with SIMD optimization
-//! - **`transform`**: Shape transformations (reshape, permute, transpose, cat, stack)
-//! - **`indexing`**: Tensor indexing and selection operations (select, gather, masked_fill)
-//! - **`reductions`**: Reduction operations (sum, mean, min, max, std, var)
-//! - **`init`**: Tensor initialization methods (zeros, ones, randn, from_slice)
+//! Internal organization (for context; not public API):
+//! - core: `Tensor` memory, views, and operators
+//! - shape: dimension/stride management and broadcasting logic
+//! - ops: SIMD-optimized math (add/sub/mul/div/matmul, activations, etc.)
+//! - transform: reshape/transpose/permute; concat/stack utilities
+//! - indexing: select/gather/masked operations
+//! - reductions: sum/mean/min/max/std/var
+//! - init: constructors and initialization helpers
 //!
 //! # Key Features
 //!
@@ -26,6 +32,17 @@
 //! - **Thread Safety**: Send + Sync implementation for concurrent usage
 //! - **Device Support**: CPU and future CUDA device placement
 //! - **View Tensors**: Zero-copy tensor views with shared memory
+//! - **Broadcasting**: NumPy-style for element-wise ops; batched ND matmul
+//! - **Iterator-first API**: chunks, windows, dims, values with collect helpers
+//! - **PyTorch-inspired API**: familiar ergonomics for easy adoption
+//!
+//! ## Initialization capabilities (Tensor-centric)
+//!
+//! - `Tensor::new(dims)` for uninitialized memory (initialize before reading)
+//! - `Tensor::zeros(dims)`, `Tensor::ones(dims)`, `Tensor::randn(dims, seed)`
+//! - `Tensor::from_slice(values, dims)` for zero-copy ingest-then-own
+//! - `Tensor::new_uninitialized(dims)` and `Tensor::new_uninitialized_aligned(dims, align)` for perf paths
+//! - And more—see `Tensor` methods in the docs for the full set of constructors
 //!
 //! # Performance Characteristics
 //!
@@ -46,10 +63,12 @@
 //! // Create tensors with different configurations
 //! let tensor = Tensor::new(vec![2, 3, 4]);
 //! let tensor_with_grad = Tensor::ones(vec![10, 10]).with_requires_grad();
+//! let z = Tensor::zeros(vec![2, 3]);
+//! let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 //!
 //! // Access tensor properties
 //! assert_eq!(tensor.size(), 24);
-//! assert_eq!(tensor.shape().dims, vec![2, 3, 4]);
+//! assert_eq!(tensor.shape().dims(), vec![2, 3, 4]);
 //! assert!(tensor.is_contiguous());
 //! ```
 //!
@@ -108,11 +127,40 @@
 //! let y_grad = y.grad();
 //! ```
 //!
+//! ## Broadcasting
+//!
+//! ```
+//! use train_station::Tensor;
+//!
+//! let a = Tensor::ones(vec![2, 3]);
+//! let b = Tensor::ones(vec![1, 3]);
+//! let c = a.add_tensor(&b); // [2,3] + [1,3] -> [2,3]
+//! assert_eq!(c.shape().dims(), vec![2, 3]);
+//! ```
+//!
+//! ## Iterators and collect helpers
+//!
+//! ```
+//! use train_station::Tensor;
+//!
+//! let t = Tensor::from_slice(&(0..6).map(|x| x as f32).collect::<Vec<_>>(), vec![6]).unwrap();
+//! let mat = t.iter_chunks(2).collect_shape(vec![3, 2]);
+//! assert_eq!(mat.shape().dims(), &[3, 2]);
+//! ```
+//!
 //! # Thread Safety
 //!
 //! All tensor operations are thread-safe and implement `Send + Sync`. Tensors can be
 //! safely shared between threads for concurrent read access. Write operations should
 //! be synchronized externally if multiple threads need to modify the same tensor.
+//!
+//! Note: submodules listed above are internal; users should access functionality via
+//! methods on `Tensor` (and a few re-exported helpers) for a clean, PyTorch-inspired API.
+//!
+//! Memory pool note: allocations are served by a thread-local pool by default. If you
+//! create tensors in a worker and return them to another thread, consider wrapping
+//! creation in `train_station::tensor::core::with_no_mem_pool(|| ...)` so those
+//! allocations use the system allocator instead of a thread-local pool.
 //!
 //! # Design Principles
 //!
@@ -134,4 +182,7 @@ pub(crate) mod reductions;
 pub(crate) mod transform;
 
 pub(crate) use core::MemoryLayout;
-pub use core::{Shape, Tensor};
+pub use core::{with_no_mem_pool, NoMemPoolGuard, Shape, Tensor};
+
+// Re-export iterator helpers/traits so users can access collect_shape without deep paths
+pub use iterator::{TensorCollectExt, ValuesCollectExt};

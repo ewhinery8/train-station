@@ -23,7 +23,7 @@
 //! // Compute L2 norm along specific dimensions
 //! let matrix = Tensor::from_slice(&[3.0, 4.0, 0.0, 5.0], vec![2, 2]).unwrap();
 //! let row_norms = matrix.norm_dims(&[1], true);
-//! assert_eq!(row_norms.shape().dims, vec![2, 1]);
+//! assert_eq!(row_norms.shape().dims(), vec![2, 1]);
 //! ```
 //!
 //! # Performance
@@ -104,7 +104,7 @@ impl Tensor {
             }
         } else {
             // Stride-aware path for non-contiguous tensors
-            let dims = self.shape().dims.clone();
+            let dims = self.shape().dims().to_vec();
             for flat_idx in 0..n {
                 // Convert flat index to multi-dimensional coordinates
                 let mut coords = vec![0; dims.len()];
@@ -131,7 +131,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceNorm {
                 saved_norm: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -164,7 +164,7 @@ impl Tensor {
     /// // Norm along rows (dimension 1) with keepdim=true
     /// let matrix = Tensor::from_slice(&[3.0, 4.0, 0.0, 5.0], vec![2, 2]).unwrap();
     /// let row_norms = matrix.norm_dims(&[1], true);
-    /// assert_eq!(row_norms.shape().dims, vec![2, 1]);
+    /// assert_eq!(row_norms.shape().dims(), vec![2, 1]);
     /// assert!((row_norms.get(&[0, 0]) - 5.0).abs() < 1e-6); // sqrt(3² + 4²)
     /// assert!((row_norms.get(&[1, 0]) - 5.0).abs() < 1e-6); // sqrt(0² + 5²)
     /// ```
@@ -175,7 +175,7 @@ impl Tensor {
     /// // Norm along columns (dimension 0) with keepdim=false
     /// let matrix = Tensor::from_slice(&[3.0, 4.0, 0.0, 5.0], vec![2, 2]).unwrap();
     /// let col_norms = matrix.norm_dims(&[0], false);
-    /// assert_eq!(col_norms.shape().dims, vec![2]);
+    /// assert_eq!(col_norms.shape().dims(), vec![2]);
     /// assert!((col_norms.get(&[0]) - 3.0).abs() < 1e-6); // sqrt(3² + 0²)
     /// assert!((col_norms.get(&[1]) - 6.403).abs() < 1e-3); // sqrt(4² + 5²)
     /// ```
@@ -186,7 +186,7 @@ impl Tensor {
     /// // Norm over multiple dimensions
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let norm_all = tensor.norm_dims(&[0, 1], false);
-    /// assert_eq!(norm_all.shape().dims, vec![1]);
+    /// assert_eq!(norm_all.shape().dims(), vec![1]);
     /// // sqrt(1² + 2² + 3² + 4²) = sqrt(30) ≈ 5.477
     /// assert!((norm_all.get(&[0]) - 30.0_f32.sqrt()).abs() < 1e-5);
     /// ```
@@ -217,7 +217,7 @@ impl Tensor {
         }
 
         // Build output shape
-        let in_shape = self.shape().dims.clone();
+        let in_shape = self.shape().dims().to_vec();
         let mut out_dims = in_shape.clone();
         let mut reduced: Vec<usize> = dims.to_vec();
         reduced.sort_unstable();
@@ -279,7 +279,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceNormDims {
                 dims: reduced,
                 keepdim,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 saved_norm: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
             };
@@ -309,7 +309,7 @@ mod tests {
     fn test_norm_dims_forward() {
         let x = Tensor::from_slice(&[3.0, 4.0, 0.0, 5.0], vec![2, 2]).unwrap();
         let n = x.norm_dims(&[1], true);
-        assert_eq!(n.shape().dims, vec![2, 1]);
+        assert_eq!(n.shape().dims(), vec![2, 1]);
         assert!((n.get(&[0, 0]) - 5.0).abs() < 1e-6);
         assert!((n.get(&[1, 0]) - 5.0).abs() < 1e-6);
     }
@@ -344,7 +344,7 @@ mod tests {
 
         // Norm along dim 0 of transposed tensor
         let norm_dim0 = x_t.norm_dims(&[0], false);
-        assert_eq!(norm_dim0.shape().dims, vec![2]);
+        assert_eq!(norm_dim0.shape().dims(), vec![2]);
 
         // For dim 0: [3,4,0] and [12,5,0]
         // norm([3,4,0]) = sqrt(3²+4²+0²) = sqrt(25) = 5
@@ -354,7 +354,7 @@ mod tests {
 
         // Norm along dim 1 of transposed tensor
         let norm_dim1 = x_t.norm_dims(&[1], false);
-        assert_eq!(norm_dim1.shape().dims, vec![3]);
+        assert_eq!(norm_dim1.shape().dims(), vec![3]);
         // norm([3,12]) = sqrt(9+144) = sqrt(153) ≈ 12.369
         // norm([4,5]) = sqrt(16+25) = sqrt(41) ≈ 6.403
         // norm([0,0]) = sqrt(0+0) = 0

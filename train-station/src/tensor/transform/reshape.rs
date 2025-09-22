@@ -27,17 +27,17 @@
 //! // Basic reshape
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
 //! let reshaped = tensor.reshape(vec![3, 2]);
-//! assert_eq!(reshaped.shape().dims, vec![3, 2]);
+//! assert_eq!(reshaped.shape().dims(), vec![3, 2]);
 //!
 //! // Automatic dimension inference with -1
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
 //! let reshaped = tensor.reshape(vec![2, -1]);
-//! assert_eq!(reshaped.shape().dims, vec![2, 2]);
+//! assert_eq!(reshaped.shape().dims(), vec![2, 2]);
 //! ```
 
 use crate::gradtrack::{GradEngine, GradFn};
 use crate::tensor::core::Tensor;
-use crate::tensor::Shape;
+// Shape is referenced via core view helpers; direct import not needed here
 
 impl Tensor {
     /// Reshape the tensor to the specified dimensions
@@ -76,7 +76,7 @@ impl Tensor {
     /// // Basic reshape
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     /// let reshaped = tensor.reshape(vec![3, 2]);
-    /// assert_eq!(reshaped.shape().dims, vec![3, 2]);
+    /// assert_eq!(reshaped.shape().dims(), vec![3, 2]);
     /// assert_eq!(reshaped.get(&[0, 0]), 1.0);
     /// assert_eq!(reshaped.get(&[2, 1]), 6.0);
     /// ```
@@ -87,7 +87,7 @@ impl Tensor {
     /// // Using -1 for automatic dimension inference
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
     /// let reshaped = tensor.reshape(vec![2, -1]);
-    /// assert_eq!(reshaped.shape().dims, vec![2, 2]);
+    /// assert_eq!(reshaped.shape().dims(), vec![2, 2]);
     /// assert_eq!(reshaped.get(&[0, 0]), 1.0);
     /// assert_eq!(reshaped.get(&[1, 1]), 4.0);
     /// ```
@@ -101,7 +101,7 @@ impl Tensor {
     ///
     /// let reshaped = tensor.reshape(vec![4]);
     /// assert!(reshaped.requires_grad());
-    /// assert_eq!(reshaped.shape().dims, vec![4]);
+    /// assert_eq!(reshaped.shape().dims(), vec![4]);
     /// ```
     ///
     /// ```
@@ -111,7 +111,7 @@ impl Tensor {
     /// let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
     /// let tensor = Tensor::from_slice(&data, vec![2, 3, 4]).unwrap();
     /// let reshaped = tensor.reshape(vec![6, 4]);
-    /// assert_eq!(reshaped.shape().dims, vec![6, 4]);
+    /// assert_eq!(reshaped.shape().dims(), vec![6, 4]);
     /// assert_eq!(reshaped.size(), 24);
     /// ```
     ///
@@ -151,15 +151,37 @@ impl Tensor {
             processed_shape,
             new_size
         );
-
-        // Check if we can do zero-copy reshape
-        if self.is_contiguous() {
-            // Zero-copy reshape - just create new shape with same data
-            self.reshape_view(processed_shape)
-        } else {
-            // Need to copy data to contiguous layout first
-            let contiguous = self.contiguous();
-            contiguous.reshape_view(processed_shape)
+        // Zero-copy reshape using core reshape_view validation
+        match crate::tensor::core::view::reshape_view(self, &processed_shape) {
+            Ok(mut v) => {
+                if self.requires_grad() {
+                    v.set_requires_grad(true);
+                    let grad_fn = GradFn::Reshape {
+                        original_shape: self.shape().dims().to_vec(),
+                    };
+                    v.set_grad_fn(grad_fn.clone());
+                    GradEngine::register_operation(v.id(), vec![self.id()], grad_fn);
+                }
+                v
+            }
+            Err(_) => {
+                // If core reshape fails (non-contiguous), materialize contiguous then view
+                let contiguous = self.contiguous();
+                let mut v =
+                    match crate::tensor::core::view::reshape_view(&contiguous, &processed_shape) {
+                        Ok(v) => v,
+                        Err(e) => panic!("reshape error: {:?}", e),
+                    };
+                if self.requires_grad() {
+                    v.set_requires_grad(true);
+                    let grad_fn = GradFn::Reshape {
+                        original_shape: self.shape().dims().to_vec(),
+                    };
+                    v.set_grad_fn(grad_fn.clone());
+                    GradEngine::register_operation(v.id(), vec![self.id()], grad_fn);
+                }
+                v
+            }
         }
     }
 
@@ -191,7 +213,7 @@ impl Tensor {
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
     /// // This internally calls process_reshape_dimensions
     /// let reshaped = tensor.reshape(vec![2, -1]);
-    /// assert_eq!(reshaped.shape().dims, vec![2, 2]);
+    /// assert_eq!(reshaped.shape().dims(), vec![2, 2]);
     /// ```
     pub(crate) fn process_reshape_dimensions(&self, new_shape: Vec<i32>) -> Vec<usize> {
         // Validate input dimensions
@@ -219,7 +241,7 @@ impl Tensor {
 
         if let Some(infer_idx) = infer_dim {
             let total_size = self.size();
-            if known_size == 0 || total_size % known_size != 0 {
+            if known_size == 0 || !total_size.is_multiple_of(known_size) {
                 panic!(
                     "Cannot infer dimension size: total size {} not divisible by known size {}",
                     total_size, known_size
@@ -231,67 +253,7 @@ impl Tensor {
         processed
     }
 
-    /// Create a reshaped view of the tensor (zero-copy operation)
-    ///
-    /// Creates a new tensor with the specified shape that shares the same
-    /// underlying data as the original tensor. This is a zero-copy operation
-    /// that only changes the logical arrangement of the data.
-    ///
-    /// # Arguments
-    ///
-    /// * `new_dims` - The new dimensions for the tensor
-    ///
-    /// # Returns
-    ///
-    /// A new tensor with the specified shape containing the same data
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure:
-    /// * `new_dims` produces a tensor with the same total size as the original
-    /// * The tensor is contiguous (this method is called after checking)
-    ///
-    /// # Performance
-    ///
-    /// - **Time Complexity**: O(1) - Only creates a new shape wrapper
-    /// - **Memory Usage**: No additional allocation beyond the shape metadata
-    /// - **Data Sharing**: Shares the same underlying data as the original tensor
-    fn reshape_view(&self, new_dims: Vec<usize>) -> Tensor {
-        let new_shape = Shape::new(new_dims);
-
-        // Determine if this operation requires gradient tracking
-        let requires_grad = self.requires_grad();
-
-        // Create the reshaped tensor by copying the data
-        // Note: In a full implementation, we'd want zero-copy view operations
-        // For now, we'll create a new tensor and copy the data
-        let mut reshaped = Tensor::new(new_shape.dims.clone());
-
-        unsafe {
-            let src = self.as_ptr();
-            let dst = reshaped.as_mut_ptr();
-            std::ptr::copy_nonoverlapping(src, dst, self.size());
-        }
-
-        if requires_grad {
-            reshaped.set_requires_grad(true);
-
-            // Set up gradient function for GradTrack
-            let grad_fn = GradFn::Reshape {
-                original_shape: self.shape().dims.clone(),
-            };
-            reshaped.set_grad_fn(grad_fn);
-
-            // Register with GradTrack engine
-            GradEngine::register_operation(
-                reshaped.id(),
-                vec![self.id()],
-                reshaped.grad_fn().clone(),
-            );
-        }
-
-        reshaped
-    }
+    // removed: private reshape_view in favor of core view::reshape_view
 }
 
 #[cfg(test)]
@@ -303,7 +265,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
         let reshaped = tensor.reshape(vec![3, 2]);
 
-        assert_eq!(reshaped.shape().dims, vec![3, 2]);
+        assert_eq!(reshaped.shape().dims(), vec![3, 2]);
         assert_eq!(reshaped.size(), 6);
 
         // Verify data integrity
@@ -316,7 +278,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
         let reshaped = tensor.reshape(vec![2, -1]);
 
-        assert_eq!(reshaped.shape().dims, vec![2, 2]);
+        assert_eq!(reshaped.shape().dims(), vec![2, 2]);
         assert_eq!(reshaped.size(), 4);
     }
 
@@ -358,7 +320,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![10, 100]).unwrap();
 
         let reshaped = tensor.reshape(vec![25, 40]);
-        assert_eq!(reshaped.shape().dims, vec![25, 40]);
+        assert_eq!(reshaped.shape().dims(), vec![25, 40]);
         assert_eq!(reshaped.size(), 1000);
 
         // Verify first and last elements preserved
@@ -371,12 +333,12 @@ mod tests {
         // Scalar to 1D
         let scalar = Tensor::from_slice(&[42.0], vec![1]).unwrap();
         let reshaped = scalar.reshape(vec![-1]);
-        assert_eq!(reshaped.shape().dims, vec![1]);
+        assert_eq!(reshaped.shape().dims(), vec![1]);
 
         // 1D to scalar (well, size-1 tensor)
         let tensor = Tensor::from_slice(&[42.0], vec![1]).unwrap();
         let reshaped = tensor.reshape(vec![1]);
-        assert_eq!(reshaped.shape().dims, vec![1]);
+        assert_eq!(reshaped.shape().dims(), vec![1]);
     }
 
     #[test]
@@ -386,7 +348,7 @@ mod tests {
         let reshaped = tensor.reshape(vec![4]);
         let transposed = reshaped.reshape(vec![1, 4]);
 
-        assert_eq!(transposed.shape().dims, vec![1, 4]);
+        assert_eq!(transposed.shape().dims(), vec![1, 4]);
         assert_eq!(transposed.get(&[0, 3]), 4.0);
     }
 
@@ -404,7 +366,7 @@ mod tests {
 
         let result = reshaped_a.add_tensor_optimized(&b);
 
-        assert_eq!(result.shape().dims, vec![4]);
+        assert_eq!(result.shape().dims(), vec![4]);
         // Note: add_tensor_optimized may not preserve gradients for mixed operations
         // In a full implementation, we'd use the AutogradTensor trait methods
 

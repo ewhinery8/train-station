@@ -277,7 +277,7 @@ fn demonstrate_large_scale_processing() -> Result<(), Box<dyn std::error::Error>
         println!("  Hierarchical processing: {:?}", hierarchical_time);
 
         // Memory usage analysis
-        let total_batches = (size + batch_size - 1) / batch_size;
+        let total_batches = size.div_ceil(batch_size);
         println!("  Batch count: {}", total_batches);
         println!("  Strided result size: {}", strided_result.size());
         println!(

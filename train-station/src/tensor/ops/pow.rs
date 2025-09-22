@@ -58,7 +58,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let b = a.pow_scalar(2.0);
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 1.0); // 1.0^2 = 1.0
     /// assert_eq!(b.get(&[1]), 4.0); // 2.0^2 = 4.0
     /// assert_eq!(b.get(&[2]), 9.0); // 3.0^2 = 9.0
@@ -71,7 +71,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 4.0, 9.0], vec![3]).unwrap();
     /// let b = a.pow_scalar(0.5);
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 1.0); // sqrt(1.0) = 1.0
     /// assert_eq!(b.get(&[1]), 2.0); // sqrt(4.0) = 2.0
     /// assert_eq!(b.get(&[2]), 3.0); // sqrt(9.0) = 3.0
@@ -124,7 +124,7 @@ impl Tensor {
     /// - Other exponents: Uses scalar `powf()` for accuracy
     #[inline]
     pub(crate) fn pow_scalar_optimized(&self, exponent: f32) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;
@@ -484,7 +484,7 @@ impl Tensor {
     /// let base = Tensor::from_slice(&[2.0, 3.0, 4.0], vec![3]).unwrap();
     /// let exp = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let result = base.pow_tensor(&exp);
-    /// assert_eq!(result.shape().dims, vec![3]);
+    /// assert_eq!(result.shape().dims(), vec![3]);
     /// assert_eq!(result.get(&[0]), 2.0); // 2.0^1.0 = 2.0
     /// assert_eq!(result.get(&[1]), 9.0); // 3.0^2.0 = 9.0
     /// assert_eq!(result.get(&[2]), 64.0); // 4.0^3.0 = 64.0
@@ -498,7 +498,7 @@ impl Tensor {
     /// let base = Tensor::from_slice(&[4.0, 9.0, 16.0], vec![3]).unwrap();
     /// let exp = Tensor::from_slice(&[0.5, 1.0, 2.0], vec![3]).unwrap();
     /// let result = base.pow_tensor(&exp);
-    /// assert_eq!(result.shape().dims, vec![3]);
+    /// assert_eq!(result.shape().dims(), vec![3]);
     /// assert_eq!(result.get(&[0]), 2.0); // sqrt(4.0) = 2.0
     /// assert_eq!(result.get(&[1]), 9.0); // 9.0^1.0 = 9.0
     /// assert_eq!(result.get(&[2]), 256.0); // 16.0^2.0 = 256.0
@@ -509,11 +509,11 @@ impl Tensor {
     #[track_caller]
     pub fn pow_tensor(&self, exponent: &Tensor) -> Tensor {
         assert_eq!(
-            self.shape().dims,
-            exponent.shape().dims,
+            self.shape().dims(),
+            exponent.shape().dims(),
             "pow_tensor requires identical shapes"
         );
-        let mut out = Tensor::new(self.shape().dims.clone());
+        let mut out = Tensor::new(self.shape().dims().to_vec());
         unsafe {
             let x = self.as_ptr();
             let a = exponent.as_ptr();
@@ -549,7 +549,7 @@ mod tests {
     fn test_pow_scalar_forward() {
         let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
         let y = x.pow_scalar(2.0);
-        assert_eq!(y.shape().dims, vec![4]);
+        assert_eq!(y.shape().dims(), vec![4]);
         unsafe {
             assert_eq!(*y.as_ptr(), 1.0);
             assert_eq!(*y.as_ptr().add(1), 4.0);

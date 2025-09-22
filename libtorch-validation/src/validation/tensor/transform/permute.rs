@@ -41,7 +41,7 @@ impl TensorValidator {
         }
         let mut y = x.permute(dims.to_vec());
         y.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };

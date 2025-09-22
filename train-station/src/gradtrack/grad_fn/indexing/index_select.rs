@@ -8,7 +8,7 @@ pub(crate) fn apply_index_select(
 ) -> Vec<Option<Tensor>> {
     let mut grad_input = Tensor::zeros(input_shape.to_vec());
     let rank = input_shape.len();
-    let out_dims = grad_output.shape().dims.to_vec();
+    let out_dims = grad_output.shape().dims().to_vec();
     let inner: usize = out_dims[dim + 1..].iter().product();
     let outer: usize = out_dims[..dim].iter().product();
 

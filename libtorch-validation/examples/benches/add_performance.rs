@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create performance tester with custom configuration
     let config = PerformanceConfig {
-        iterations: 100,
+        iterations: 500,
         warmup_iterations: 10,
         verbose: true,
     };

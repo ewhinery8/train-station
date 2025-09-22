@@ -88,7 +88,7 @@ fn demonstrate_basic_iteration() -> Result<(), Box<dyn std::error::Error>> {
             "  Element {}: value = {:.1}, shape = {:?}",
             i,
             element.value(),
-            element.shape().dims
+            element.shape().dims()
         );
     }
 

@@ -37,7 +37,7 @@ impl Tensor {
     /// let result = tensor.masked_fill(&mask, -1.0);
     ///
     /// // Result: [[0.0, -1.0, 2.0], [-1.0, 4.0, -1.0]]
-    /// assert_eq!(result.shape().dims, vec![2, 3]);
+    /// assert_eq!(result.shape().dims(), vec![2, 3]);
     /// assert_eq!(result.get(&[0, 0]), 0.0);   // Unmasked
     /// assert_eq!(result.get(&[0, 1]), -1.0);  // Masked
     /// assert_eq!(result.get(&[0, 2]), 2.0);   // Unmasked
@@ -60,10 +60,10 @@ impl Tensor {
     ///
     /// // Compute gradients
     /// result.backward(None);
-    /// let grad = tensor.grad_by_value().expect("gradient missing");
+    /// let grad = tensor.grad_owned().expect("gradient missing");
     ///
     /// // Gradients should be zero where mask is true, 1 elsewhere
-    /// assert_eq!(grad.shape().dims, vec![2, 3]);
+    /// assert_eq!(grad.shape().dims(), vec![2, 3]);
     /// assert!((grad.get(&[0, 0]) - 1.0).abs() < 1e-6);   // Unmasked: gradient flows
     /// assert!((grad.get(&[0, 1]) - 0.0).abs() < 1e-6);   // Masked: no gradient
     /// assert!((grad.get(&[0, 2]) - 1.0).abs() < 1e-6);   // Unmasked: gradient flows
@@ -145,7 +145,7 @@ impl Tensor {
         );
 
         // Output is a contiguous copy with applied mask
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         // Iterate in logical order using strides if needed
         let rank = self.shape().rank();
@@ -154,7 +154,7 @@ impl Tensor {
             // Decode logical coords for mask mapping
             let mut tmp = lin;
             for i in (0..rank).rev() {
-                let s = self.shape().dims[i];
+                let s = self.shape().dims()[i];
                 coords[i] = if s == 0 { 0 } else { tmp % s };
                 tmp /= s;
             }
@@ -172,7 +172,7 @@ impl Tensor {
             output.set_requires_grad(true);
             let grad_fn = GradFn::MaskedFill {
                 mask: mask.to_vec(),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             output.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(output.id(), vec![self.id()], grad_fn);
@@ -191,7 +191,7 @@ mod tests {
         let x = Tensor::from_slice(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0], vec![2, 3]).unwrap();
         let mask = vec![false, true, false, true, false, true];
         let y = x.masked_fill(&mask, -1.0);
-        assert_eq!(y.shape().dims, vec![2, 3]);
+        assert_eq!(y.shape().dims(), vec![2, 3]);
         assert_eq!(y.get(&[0, 0]), 0.0);
         assert_eq!(y.get(&[0, 1]), -1.0);
         assert_eq!(y.get(&[1, 0]), -1.0);
@@ -205,7 +205,7 @@ mod tests {
         let mask = vec![false, true, false, true, false, false];
         let mut y = x.masked_fill(&mask, 5.0);
         y.backward(None);
-        let gx = x.grad_by_value().expect("grad missing");
+        let gx = x.grad_owned().expect("grad missing");
         // Grad should be zero where mask is true, 1 elsewhere (from upstream ones)
         for (i, &m) in mask.iter().enumerate().take(6) {
             let expected = if m { 0.0 } else { 1.0 };

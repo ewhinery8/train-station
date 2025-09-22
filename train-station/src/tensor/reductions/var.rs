@@ -31,7 +31,7 @@
 //! // Compute variance along specific dimensions
 //! let matrix = Tensor::from_slice(&[1.0, 3.0, 2.0, 2.0], vec![2, 2]).unwrap();
 //! let row_vars = matrix.var_dims(&[1], true);
-//! assert_eq!(row_vars.shape().dims, vec![2, 1]);
+//! assert_eq!(row_vars.shape().dims(), vec![2, 1]);
 //! ```
 //!
 //! # Performance
@@ -118,7 +118,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -150,7 +150,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -191,7 +191,7 @@ impl Tensor {
                             }
                         }
                     } else {
-                        let dims = self.shape().dims.clone();
+                        let dims = self.shape().dims().to_vec();
                         for flat_idx in 0..self.size() {
                             // Convert flat index to multi-dimensional coordinates
                             let mut coords = vec![0; dims.len()];
@@ -217,7 +217,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceVar {
                 saved_mean: Box::new(mean_tensor),
                 saved_input: Box::new(self.clone()),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -253,7 +253,7 @@ impl Tensor {
     /// // Variance along rows (dimension 1) with keepdim=true
     /// let matrix = Tensor::from_slice(&[1.0, 3.0, 2.0, 2.0], vec![2, 2]).unwrap();
     /// let row_vars = matrix.var_dims(&[1], true);
-    /// assert_eq!(row_vars.shape().dims, vec![2, 1]);
+    /// assert_eq!(row_vars.shape().dims(), vec![2, 1]);
     /// assert!((row_vars.get(&[0, 0]) - 1.0).abs() < 1e-6); // var([1, 3]) = 1.0
     /// assert!((row_vars.get(&[1, 0]) - 0.0).abs() < 1e-6); // var([2, 2]) = 0.0
     /// ```
@@ -264,7 +264,7 @@ impl Tensor {
     /// // Variance along columns (dimension 0) with keepdim=false
     /// let matrix = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let col_vars = matrix.var_dims(&[0], false);
-    /// assert_eq!(col_vars.shape().dims, vec![2]);
+    /// assert_eq!(col_vars.shape().dims(), vec![2]);
     /// // var([1, 3]) = 1.0, var([2, 4]) = 1.0
     /// assert!((col_vars.get(&[0]) - 1.0).abs() < 1e-6);
     /// assert!((col_vars.get(&[1]) - 1.0).abs() < 1e-6);
@@ -276,7 +276,7 @@ impl Tensor {
     /// // Variance over multiple dimensions
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let var_all = tensor.var_dims(&[0, 1], false);
-    /// assert_eq!(var_all.shape().dims, vec![1]);
+    /// assert_eq!(var_all.shape().dims(), vec![1]);
     /// // var([1, 2, 3, 4]) = 1.25
     /// assert!((var_all.get(&[0]) - 1.25).abs() < 1e-5);
     /// ```
@@ -306,7 +306,7 @@ impl Tensor {
         }
 
         // Output shape
-        let mut out_dims = self.shape().dims.clone();
+        let mut out_dims = self.shape().dims().to_vec();
         let mut reduced: Vec<usize> = dims.to_vec();
         reduced.sort_unstable();
         reduced.dedup();
@@ -323,7 +323,7 @@ impl Tensor {
         let mut mean = Tensor::zeros(out_dims.clone());
         let mut var = Tensor::zeros(out_dims.clone());
 
-        let in_shape = self.shape().dims.clone();
+        let in_shape = self.shape().dims().to_vec();
         let out_rank = mean.shape().rank();
         let mut in_coords = vec![0usize; rank];
         let n_reduced: usize = reduced.iter().map(|&d| in_shape[d]).product();
@@ -407,7 +407,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceVarDims {
                 dims: reduced,
                 keepdim,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 saved_mean: Box::new(mean),
                 saved_input: Box::new(self.clone()),
             };
@@ -438,7 +438,7 @@ mod tests {
     fn test_var_dims_forward() {
         let x = Tensor::from_slice(&[1.0, 3.0, 2.0, 2.0], vec![2, 2]).unwrap();
         let v = x.var_dims(&[1], true);
-        assert_eq!(v.shape().dims, vec![2, 1]);
+        assert_eq!(v.shape().dims(), vec![2, 1]);
         assert!((v.get(&[0, 0]) - 1.0).abs() < 1e-6);
         assert!((v.get(&[1, 0]) - 0.0).abs() < 1e-6);
     }
@@ -473,7 +473,7 @@ mod tests {
 
         // Var along dim 0 of transposed tensor
         let var_dim0 = x_t.var_dims(&[0], false);
-        assert_eq!(var_dim0.shape().dims, vec![2]);
+        assert_eq!(var_dim0.shape().dims(), vec![2]);
 
         // For dim 0: [1,2,3] and [4,5,6]
         // [1,2,3]: mean=2, var=((1-2)^2 + (2-2)^2 + (3-2)^2)/3 = 2/3 ≈ 0.6667

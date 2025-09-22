@@ -68,7 +68,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-1.0, 0.0, 1.0], vec![3]).unwrap();
     /// let b = a.tanh();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert!((b.get(&[0]) - (-0.7615942)).abs() < 1e-6); // tanh(-1.0)
     /// assert!((b.get(&[1]) - 0.0).abs() < 1e-6); // tanh(0.0)
     /// assert!((b.get(&[2]) - 0.7615942).abs() < 1e-6); // tanh(1.0)
@@ -81,7 +81,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-10.0, 10.0], vec![2]).unwrap();
     /// let b = a.tanh();
-    /// assert_eq!(b.shape().dims, vec![2]);
+    /// assert_eq!(b.shape().dims(), vec![2]);
     /// assert!((b.get(&[0]) - (-1.0)).abs() < 1e-6); // tanh(-10.0) ≈ -1
     /// assert!((b.get(&[1]) - 1.0).abs() < 1e-6); // tanh(10.0) ≈ 1
     /// ```
@@ -125,7 +125,7 @@ impl Tensor {
     /// Implements 4x unrolling for better instruction-level parallelism and cache utilization.
     #[inline]
     pub(crate) fn tanh_optimized(&self) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;

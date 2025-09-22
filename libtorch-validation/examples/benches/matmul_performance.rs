@@ -18,35 +18,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Running Matrix Multiplication Performance Benchmark");
     println!("=================================================");
 
-    // Define comprehensive matrix multiplication test cases
-    let shape_pairs = vec![
-        // 2D square matrices
-        (vec![16, 16], vec![16, 16]),
-        (vec![32, 32], vec![32, 32]),
-        (vec![64, 64], vec![64, 64]),
-        (vec![128, 128], vec![128, 128]),
-        (vec![256, 256], vec![256, 256]),
-        (vec![512, 512], vec![512, 512]),
-        (vec![1024, 1024], vec![1024, 1024]),
-        // 2D non-square matrices
-        (vec![64, 32], vec![32, 64]),     // 2×3 * 3×4 = 2×4
-        (vec![32, 64], vec![64, 32]),     // 4×5 * 5×6 = 4×6
-        (vec![128, 64], vec![64, 128]),   // 10×20 * 20×15 = 10×15
-        (vec![64, 128], vec![128, 64]),   // 1×100 * 100×1 = 1×1 (dot product)
-        (vec![256, 128], vec![128, 256]), // 100×1 * 1×100 = 100×100 (outer product)
-        // 3D batch matrices
-        (vec![16, 32, 32], vec![16, 32, 32]),
-        (vec![32, 64, 64], vec![32, 64, 64]),
-        (vec![64, 128, 128], vec![64, 128, 128]),
-        (vec![16, 32, 32], vec![16, 32, 32]),
-        (vec![32, 64, 64], vec![32, 64, 64]),
-        (vec![64, 128, 128], vec![64, 128, 128]),
-    ];
+    // Expanded shape families
+    let mut shape_pairs: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+
+    // Square families
+    for &d in &[16usize, 32, 64, 128, 256, 512, 1024] {
+        shape_pairs.push((vec![d, d], vec![d, d]));
+    }
+
+    // Tall-skinny: M >> K, moderate N
+    for &(m, k, n) in &[
+        (512usize, 32usize, 64usize),
+        (1024, 64, 64),
+        (2048, 64, 128),
+    ] {
+        shape_pairs.push((vec![m, k], vec![k, n]));
+    }
+
+    // Short-wide: small M, large N
+    for &(m, k, n) in &[
+        (32usize, 128usize, 1024usize),
+        (64, 128, 2048),
+        (64, 256, 2048),
+    ] {
+        shape_pairs.push((vec![m, k], vec![k, n]));
+    }
+
+    // GEMV: m==1 or n==1
+    for &k in &[64usize, 128, 256, 1024] {
+        shape_pairs.push((vec![1, k], vec![k, 256])); // row-vector x matrix
+        shape_pairs.push((vec![256, k], vec![k, 1])); // matrix x col-vector
+    }
+
+    // Batched smalls
+    for &(b, m, k, n) in &[
+        (8usize, 16usize, 16usize, 16usize),
+        (16, 32, 32, 32),
+        (32, 32, 64, 32),
+    ] {
+        shape_pairs.push((vec![b, m, k], vec![b, k, n]));
+    }
 
     // Create performance tester with custom configuration
     let config = PerformanceConfig {
-        iterations: 100,
-        warmup_iterations: 10,
+        iterations: 1000,
+        warmup_iterations: 50,
         verbose: true,
     };
 
@@ -61,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nBenchmark completed successfully!");
     println!("Results saved to: matmul_performance.json");
     println!("Total matrix multiplication tests run: {}", results.len());
-    println!("Coverage includes square, non-square, and batch matrix multiplications");
+    println!("Coverage includes square, tall-skinny, short-wide, gemv, and batched smalls");
 
     Ok(())
 }

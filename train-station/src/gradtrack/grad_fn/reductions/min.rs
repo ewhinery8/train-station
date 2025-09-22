@@ -53,7 +53,7 @@ pub(crate) fn apply_reduce_min_dims(
     reduced.sort_unstable();
     reduced.dedup();
     let mut coords = vec![0usize; rank];
-    let mut min_counts = Tensor::zeros(saved_output.shape().dims.to_vec());
+    let mut min_counts = Tensor::zeros(saved_output.shape().dims().to_vec());
     // First pass: count
     for lin in 0..saved_input.size() {
         let mut tmp = lin;

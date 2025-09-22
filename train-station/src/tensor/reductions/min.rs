@@ -66,7 +66,7 @@ impl Tensor {
                 }
             } else {
                 // Stride-aware path for non-contiguous tensors
-                let dims = self.shape().dims.clone();
+                let dims = self.shape().dims().to_vec();
                 for flat_idx in 0..self.size() {
                     // Convert flat index to multi-dimensional coordinates
                     let mut coords = vec![0; dims.len()];
@@ -98,7 +98,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceMin {
                 saved_output: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -132,7 +132,7 @@ impl Tensor {
     ///
     /// // Min over columns (dim 1), keeping dimensions
     /// let min_cols = tensor.min_dims(&[1], true);
-    /// assert_eq!(min_cols.shape().dims, vec![2, 1]);
+    /// assert_eq!(min_cols.shape().dims(), vec![2, 1]);
     /// assert_eq!(min_cols.get(&[0, 0]), 1.0);
     /// assert_eq!(min_cols.get(&[1, 0]), 4.0);
     /// ```
@@ -144,7 +144,7 @@ impl Tensor {
     ///
     /// // Min over rows (dim 0), removing dimensions
     /// let min_rows = tensor.min_dims(&[0], false);
-    /// assert_eq!(min_rows.shape().dims, vec![3]);
+    /// assert_eq!(min_rows.shape().dims(), vec![3]);
     /// assert_eq!(min_rows.get(&[0]), 1.0);
     /// assert_eq!(min_rows.get(&[1]), 2.0);
     /// assert_eq!(min_rows.get(&[2]), 3.0);
@@ -157,7 +157,7 @@ impl Tensor {
     ///
     /// // Min over multiple dimensions
     /// let min_all = tensor.min_dims(&[0, 1], false);
-    /// assert_eq!(min_all.shape().dims, vec![1]);
+    /// assert_eq!(min_all.shape().dims(), vec![1]);
     /// assert_eq!(min_all.get(&[0]), 1.0);
     /// ```
     ///
@@ -186,7 +186,7 @@ impl Tensor {
         }
 
         // Build output shape
-        let mut out_dims = self.shape().dims.clone();
+        let mut out_dims = self.shape().dims().to_vec();
         let mut reduced: Vec<usize> = dims.to_vec();
         reduced.sort_unstable();
         reduced.dedup();
@@ -202,7 +202,7 @@ impl Tensor {
         let mut out = Tensor::zeros(out_dims.clone());
 
         // Compute min along reduced dims
-        let in_shape = self.shape().dims.clone();
+        let in_shape = self.shape().dims().to_vec();
         let out_rank = out.shape().rank();
         let mut in_coords = vec![0usize; rank];
         unsafe {
@@ -253,7 +253,7 @@ impl Tensor {
             let grad_fn = GradFn::ReduceMinDims {
                 dims: reduced,
                 keepdim,
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
                 saved_output: Box::new(out.clone()),
                 saved_input: Box::new(self.clone()),
             };
@@ -279,7 +279,7 @@ mod tests {
             }
         }
         let m = x.min();
-        assert_eq!(m.shape().dims, vec![1]);
+        assert_eq!(m.shape().dims(), vec![1]);
         unsafe {
             assert_eq!(*m.as_ptr(), -3.0);
         }
@@ -294,7 +294,7 @@ mod tests {
             }
         }
         let m = x.min_dims(&[1], true);
-        assert_eq!(m.shape().dims, vec![2, 1]);
+        assert_eq!(m.shape().dims(), vec![2, 1]);
         assert_eq!(m.get(&[0, 0]), -3.0);
         assert_eq!(m.get(&[1, 0]), 0.0);
     }
@@ -326,14 +326,14 @@ mod tests {
 
         // Min along dim 0 of transposed tensor
         let min_dim0 = x_t.min_dims(&[0], false);
-        assert_eq!(min_dim0.shape().dims, vec![2]);
+        assert_eq!(min_dim0.shape().dims(), vec![2]);
         // Should be [min(1,2,3), min(4,5,6)] = [1, 4]
         assert_eq!(min_dim0.get(&[0]), 1.0);
         assert_eq!(min_dim0.get(&[1]), 4.0);
 
         // Min along dim 1 of transposed tensor
         let min_dim1 = x_t.min_dims(&[1], false);
-        assert_eq!(min_dim1.shape().dims, vec![3]);
+        assert_eq!(min_dim1.shape().dims(), vec![3]);
         // Should be [min(1,4), min(2,5), min(3,6)] = [1, 2, 3]
         assert_eq!(min_dim1.get(&[0]), 1.0);
         assert_eq!(min_dim1.get(&[1]), 2.0);

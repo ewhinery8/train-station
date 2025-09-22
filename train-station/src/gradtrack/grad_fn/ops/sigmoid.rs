@@ -2,7 +2,7 @@ use crate::tensor::core::Tensor;
 
 // Backward for sigmoid: d/dx sigmoid(x) = y * (1 - y), using saved_output y
 pub(crate) fn apply_sigmoid(saved_output: &Tensor, grad_output: &Tensor) -> Vec<Option<Tensor>> {
-    let mut grad_input = Tensor::zeros(saved_output.shape().dims.clone());
+    let mut grad_input = Tensor::zeros(saved_output.shape().dims().to_vec());
     unsafe {
         let y = saved_output.as_ptr();
         let go = grad_output.as_ptr();

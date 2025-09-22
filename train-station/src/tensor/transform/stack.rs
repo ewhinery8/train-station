@@ -27,7 +27,7 @@
 //! let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
 //! let b = Tensor::from_slice(&[4.0, 5.0, 6.0], vec![3]).unwrap();
 //! let stacked = Tensor::stack(&[a, b], 0);
-//! assert_eq!(stacked.shape().dims, vec![2, 3]);
+//! assert_eq!(stacked.shape().dims(), vec![2, 3]);
 //! assert_eq!(stacked.get(&[0, 0]), 1.0);
 //! assert_eq!(stacked.get(&[1, 2]), 6.0);
 //! ```
@@ -40,15 +40,12 @@
 //! let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], vec![2, 2]).unwrap();
 //! let c = Tensor::from_slice(&[9.0, 10.0, 11.0, 12.0], vec![2, 2]).unwrap();
 //! let stacked = Tensor::stack(&[a, b, c], 1);
-//! assert_eq!(stacked.shape().dims, vec![2, 3, 2]);
+//! assert_eq!(stacked.shape().dims(), vec![2, 3, 2]);
 //! ```
 
 use crate::gradtrack::{GradEngine, GradFn};
 use crate::tensor::core::Tensor;
-
-// SIMD optimizations for performance-critical operations
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::*;
+use crate::tensor::iterator::collect::optimized_copy;
 
 impl Tensor {
     /// Stack a list of tensors along a new dimension
@@ -88,7 +85,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let b = Tensor::from_slice(&[4.0, 5.0, 6.0], vec![3]).unwrap();
     /// let stacked = Tensor::stack(&[a, b], 0);
-    /// assert_eq!(stacked.shape().dims, vec![2, 3]);
+    /// assert_eq!(stacked.shape().dims(), vec![2, 3]);
     /// assert_eq!(stacked.get(&[0, 0]), 1.0);
     /// assert_eq!(stacked.get(&[1, 2]), 6.0);
     /// ```
@@ -101,7 +98,7 @@ impl Tensor {
     /// let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], vec![2, 2]).unwrap();
     /// let c = Tensor::from_slice(&[9.0, 10.0, 11.0, 12.0], vec![2, 2]).unwrap();
     /// let stacked = Tensor::stack(&[a, b, c], 1);
-    /// assert_eq!(stacked.shape().dims, vec![2, 3, 2]);
+    /// assert_eq!(stacked.shape().dims(), vec![2, 3, 2]);
     /// assert_eq!(stacked.get(&[0, 0, 0]), 1.0);
     /// assert_eq!(stacked.get(&[1, 2, 1]), 12.0);
     /// ```
@@ -117,7 +114,7 @@ impl Tensor {
     ///
     /// let stacked = Tensor::stack(&[a, b], 0);
     /// assert!(stacked.requires_grad());
-    /// assert_eq!(stacked.shape().dims, vec![2, 2]);
+    /// assert_eq!(stacked.shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// ```
@@ -129,7 +126,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&data1, vec![2, 2, 2]).unwrap();
     /// let b = Tensor::from_slice(&data2, vec![2, 2, 2]).unwrap();
     /// let stacked = Tensor::stack(&[a, b], 3);
-    /// assert_eq!(stacked.shape().dims, vec![2, 2, 2, 2]);
+    /// assert_eq!(stacked.shape().dims(), vec![2, 2, 2, 2]);
     /// assert_eq!(stacked.get(&[0, 0, 0, 0]), 0.0);
     /// assert_eq!(stacked.get(&[1, 1, 1, 1]), 15.0);
     /// ```
@@ -167,10 +164,10 @@ impl Tensor {
         assert!(!tensors.is_empty(), "stack requires at least one tensor");
 
         // Validate all shapes identical
-        let base_dims = tensors[0].shape().dims.clone();
+        let base_dims = tensors[0].shape().dims();
         for t in tensors.iter() {
             assert_eq!(
-                t.shape().dims,
+                t.shape().dims(),
                 base_dims,
                 "All tensors must have identical shapes for stack"
             );
@@ -216,7 +213,7 @@ impl Tensor {
                     // Destination offset computes with inserted axis
                     // out block along stacked axis of length K, each block is inner
                     let dst_base = outer_idx * (tensors.len() * inner) + k * inner;
-                    optimized_block_copy(src_ptr, dst_ptr.add(dst_base), inner);
+                    optimized_copy(src_ptr, dst_ptr.add(dst_base), inner);
                 }
             }
         }
@@ -234,7 +231,7 @@ impl Tensor {
                     input_ids.push(t.id());
                 }
                 input_sizes.push(1); // each slice along new axis has length 1
-                input_shapes.push(t.shape().dims.clone());
+                input_shapes.push(t.shape().dims().to_vec());
             }
             let grad_fn = GradFn::Cat {
                 dim,
@@ -249,185 +246,6 @@ impl Tensor {
     }
 }
 
-/// Optimized block copy with SIMD acceleration for large blocks
-///
-/// Performs efficient memory copying with automatic SIMD optimization
-/// for large data blocks. This function automatically selects the best
-/// copying strategy based on block size and available CPU features.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * `src` and `dst` are valid pointers to f32 data
-/// * `src` and `dst` do not overlap (non-overlapping memory regions)
-/// * `count` elements are accessible from both pointers
-/// * The memory regions are properly aligned for SIMD operations
-///
-/// # Performance
-///
-/// - **Small blocks (≤32 elements)**: Direct memory copy
-/// - **Large blocks (≥64 elements)**: AVX2 SIMD acceleration when available
-/// - **Medium blocks**: Unrolled scalar copy for optimal performance
-/// - **Memory bandwidth**: Optimized for maximum throughput
-///
-/// # Examples
-///
-/// This function is used internally by the `stack()` operation for
-/// efficient memory copying. It automatically selects the best copying
-/// strategy based on block size and available CPU features.
-#[inline]
-unsafe fn optimized_block_copy(src: *const f32, dst: *mut f32, count: usize) {
-    if count == 0 {
-        return;
-    }
-
-    // For small blocks, use standard copy
-    if count <= 32 {
-        std::ptr::copy_nonoverlapping(src, dst, count);
-        return;
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && count >= 64 {
-            simd_block_copy_avx2(src, dst, count);
-            return;
-        }
-    }
-
-    // Fallback to optimized scalar copy with unrolling
-    scalar_block_copy_unrolled(src, dst, count);
-}
-
-/// SIMD-optimized block copy using AVX2 instructions
-///
-/// Performs high-performance memory copying using AVX2 vector instructions
-/// for maximum throughput on x86_64 processors. This function processes
-/// 32 elements per iteration using 4 AVX2 vectors in an unrolled loop.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * AVX2 instructions are available on the target CPU
-/// * Pointers are properly aligned for AVX2 operations
-/// * Memory regions do not overlap
-/// * All elements are accessible from both pointers
-///
-/// # Performance
-///
-/// - **Throughput**: 32 elements per iteration (4 AVX2 vectors)
-/// - **Unrolling**: 4x unrolled loop for maximum instruction-level parallelism
-/// - **Fallback**: Handles remaining elements with 8-element blocks and scalar copy
-/// - **Memory bandwidth**: Optimized for maximum memory throughput
-///
-/// # Examples
-///
-/// This function is used internally by `optimized_block_copy()` for
-/// high-performance memory copying on x86_64 processors with AVX2 support.
-#[cfg(target_arch = "x86_64")]
-#[inline]
-#[target_feature(enable = "avx2")]
-unsafe fn simd_block_copy_avx2(src: *const f32, dst: *mut f32, count: usize) {
-    let simd_count = count / 32; // Process 32 elements per iteration (4x AVX2 vectors)
-    let mut offset = 0;
-
-    // Unrolled SIMD loop for maximum throughput
-    for _ in 0..simd_count {
-        // Process 4 AVX2 vectors (32 elements) per iteration
-        let vec1 = _mm256_loadu_ps(src.add(offset));
-        let vec2 = _mm256_loadu_ps(src.add(offset + 8));
-        let vec3 = _mm256_loadu_ps(src.add(offset + 16));
-        let vec4 = _mm256_loadu_ps(src.add(offset + 24));
-
-        _mm256_storeu_ps(dst.add(offset), vec1);
-        _mm256_storeu_ps(dst.add(offset + 8), vec2);
-        _mm256_storeu_ps(dst.add(offset + 16), vec3);
-        _mm256_storeu_ps(dst.add(offset + 24), vec4);
-
-        offset += 32;
-    }
-
-    // Handle remaining elements with 8-element SIMD blocks
-    let remaining_full_blocks = (count - offset) / 8;
-    for _ in 0..remaining_full_blocks {
-        let vec = _mm256_loadu_ps(src.add(offset));
-        _mm256_storeu_ps(dst.add(offset), vec);
-        offset += 8;
-    }
-
-    // Handle final elements
-    if offset < count {
-        std::ptr::copy_nonoverlapping(src.add(offset), dst.add(offset), count - offset);
-    }
-}
-
-/// Optimized scalar block copy with loop unrolling
-///
-/// Performs efficient memory copying using unrolled scalar operations
-/// for cases where SIMD instructions are not available or beneficial.
-/// This function processes 8 elements per iteration in an unrolled loop.
-///
-/// # Arguments
-///
-/// * `src` - Source pointer to copy from
-/// * `dst` - Destination pointer to copy to
-/// * `count` - Number of f32 elements to copy
-///
-/// # Safety
-///
-/// The caller must ensure:
-/// * `src` and `dst` are valid pointers to f32 data
-/// * Memory regions do not overlap
-/// * All elements are accessible from both pointers
-///
-/// # Performance
-///
-/// - **Throughput**: 8 elements per iteration (unrolled loop)
-/// - **Instruction-level parallelism**: Unrolled operations for better CPU utilization
-/// - **Fallback**: Handles remaining elements with standard memory copy
-/// - **Compatibility**: Works on all CPU architectures
-///
-/// # Examples
-///
-/// This function is used internally by `optimized_block_copy()` for
-/// efficient scalar memory copying when SIMD instructions are not available.
-#[inline]
-unsafe fn scalar_block_copy_unrolled(src: *const f32, dst: *mut f32, count: usize) {
-    let unroll_factor = 8;
-    let unroll_count = count / unroll_factor;
-    let mut offset = 0;
-
-    // Unrolled scalar copy for better performance
-    for _ in 0..unroll_count {
-        *dst.add(offset) = *src.add(offset);
-        *dst.add(offset + 1) = *src.add(offset + 1);
-        *dst.add(offset + 2) = *src.add(offset + 2);
-        *dst.add(offset + 3) = *src.add(offset + 3);
-        *dst.add(offset + 4) = *src.add(offset + 4);
-        *dst.add(offset + 5) = *src.add(offset + 5);
-        *dst.add(offset + 6) = *src.add(offset + 6);
-        *dst.add(offset + 7) = *src.add(offset + 7);
-        offset += unroll_factor;
-    }
-
-    // Handle remaining elements
-    if offset < count {
-        std::ptr::copy_nonoverlapping(src.add(offset), dst.add(offset), count - offset);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,7 +255,7 @@ mod tests {
         let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
         let b = Tensor::from_slice(&[4.0, 5.0, 6.0], vec![3]).unwrap();
         let y = Tensor::stack(&[a, b], 0);
-        assert_eq!(y.shape().dims, vec![2, 3]);
+        assert_eq!(y.shape().dims(), vec![2, 3]);
         assert_eq!(y.get(&[0, 0]), 1.0);
         assert_eq!(y.get(&[1, 2]), 6.0);
     }
@@ -448,7 +266,7 @@ mod tests {
         let b = Tensor::from_slice(&[3.0, 4.0], vec![2]).unwrap();
         let c = Tensor::from_slice(&[5.0, 6.0], vec![2]).unwrap();
         let stacked = Tensor::stack(&[a, b, c], 0);
-        assert_eq!(stacked.shape().dims, vec![3, 2]);
+        assert_eq!(stacked.shape().dims(), vec![3, 2]);
         assert_eq!(stacked.get(&[0, 0]), 1.0);
         assert_eq!(stacked.get(&[1, 1]), 4.0);
         assert_eq!(stacked.get(&[2, 1]), 6.0);
@@ -459,7 +277,7 @@ mod tests {
         let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
         let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], vec![2, 2]).unwrap();
         let stacked = Tensor::stack(&[a, b], 1);
-        assert_eq!(stacked.shape().dims, vec![2, 2, 2]);
+        assert_eq!(stacked.shape().dims(), vec![2, 2, 2]);
         assert_eq!(stacked.get(&[0, 0, 0]), 1.0);
         assert_eq!(stacked.get(&[1, 1, 1]), 8.0);
     }
@@ -473,7 +291,7 @@ mod tests {
 
         let stacked = Tensor::stack(&[a, b], 0);
         assert!(stacked.requires_grad());
-        assert_eq!(stacked.shape().dims, vec![2, 2]);
+        assert_eq!(stacked.shape().dims(), vec![2, 2]);
     }
 
     #[test]

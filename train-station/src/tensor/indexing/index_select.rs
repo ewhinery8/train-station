@@ -37,7 +37,7 @@ impl Tensor {
     /// let result = tensor.index_select(1, &[2, 0]);
     ///
     /// // Result shape is [2, 2] (same as input except dim 1 is now 2)
-    /// assert_eq!(result.shape().dims, vec![2, 2]);
+    /// assert_eq!(result.shape().dims(), vec![2, 2]);
     ///
     /// // Row 0: selected columns [2, 0] -> [2.0, 0.0]
     /// assert_eq!(result.get(&[0, 0]), 2.0);
@@ -61,8 +61,8 @@ impl Tensor {
     /// result.backward(None);
     ///
     /// // Verify gradients are computed correctly
-    /// let grad = tensor.grad_by_value().expect("gradient missing");
-    /// assert_eq!(grad.shape().dims, vec![2, 3]);
+    /// let grad = tensor.grad_owned().expect("gradient missing");
+    /// assert_eq!(grad.shape().dims(), vec![2, 3]);
     /// ```
     ///
     /// ## Selecting Rows from a Matrix
@@ -77,7 +77,7 @@ impl Tensor {
     /// let result = tensor.index_select(0, &[2, 0]);
     ///
     /// // Result shape is [2, 2]
-    /// assert_eq!(result.shape().dims, vec![2, 2]);
+    /// assert_eq!(result.shape().dims(), vec![2, 2]);
     ///
     /// // Selected rows: row 2 [5.0, 6.0], row 0 [1.0, 2.0]
     /// assert_eq!(result.get(&[0, 0]), 5.0); // First row of result (was row 2)
@@ -136,16 +136,16 @@ impl Tensor {
         );
         for &idx in indices {
             assert!(
-                idx < self.shape().dims[dim],
+                idx < self.shape().dims()[dim],
                 "index {} out of bounds for dimension {} (size {})",
                 idx,
                 dim,
-                self.shape().dims[dim]
+                self.shape().dims()[dim]
             );
         }
 
         // Output shape is same as input except along dim -> indices.len()
-        let mut out_dims = self.shape().dims.clone();
+        let mut out_dims = self.shape().dims().to_vec();
         out_dims[dim] = indices.len();
         let mut output = Tensor::new(out_dims.clone());
 
@@ -162,7 +162,7 @@ impl Tensor {
                 if dim > 0 {
                     let mut tmp = outer_idx;
                     for i in (0..dim).rev() {
-                        let s = self.shape().dims[i];
+                        let s = self.shape().dims()[i];
                         coords[i] = tmp % s;
                         tmp /= s;
                     }
@@ -175,7 +175,7 @@ impl Tensor {
                         // Decode inner_idx into coordinates for axes > dim
                         let mut tmp = inner_idx;
                         for (i, c) in coords.iter_mut().enumerate().take(rank).skip(dim + 1) {
-                            let s = self.shape().dims[i];
+                            let s = self.shape().dims()[i];
                             *c = tmp % s;
                             tmp /= s;
                         }
@@ -201,7 +201,7 @@ impl Tensor {
             let grad_fn = GradFn::IndexSelect {
                 dim,
                 indices: indices.to_vec(),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             output.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(output.id(), vec![self.id()], grad_fn);
@@ -220,7 +220,7 @@ mod tests {
         let x =
             Tensor::from_slice(&(0..6).map(|i| i as f32).collect::<Vec<_>>(), vec![2, 3]).unwrap();
         let y = x.index_select(1, &[2, 0]);
-        assert_eq!(y.shape().dims, vec![2, 2]);
+        assert_eq!(y.shape().dims(), vec![2, 2]);
         assert_eq!(y.get(&[0, 0]), 2.0);
         assert_eq!(y.get(&[0, 1]), 0.0);
         assert_eq!(y.get(&[1, 0]), 5.0);

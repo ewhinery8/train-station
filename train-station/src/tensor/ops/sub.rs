@@ -82,7 +82,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&[5.0, 7.0, 9.0], vec![3]).unwrap();
     /// let b = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let c = a.sub_tensor(&b);
-    /// assert_eq!(c.shape().dims, vec![3]);
+    /// assert_eq!(c.shape().dims(), vec![3]);
     /// assert_eq!(c.get(&[0]), 4.0); // 5.0 - 1.0
     /// assert_eq!(c.get(&[1]), 5.0); // 7.0 - 2.0
     /// assert_eq!(c.get(&[2]), 6.0); // 9.0 - 3.0
@@ -96,7 +96,7 @@ impl Tensor {
     /// let a = Tensor::from_slice(&[5.0, 10.0], vec![2, 1]).unwrap();
     /// let b = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![1, 3]).unwrap();
     /// let c = a.sub_tensor(&b);
-    /// assert_eq!(c.shape().dims, vec![2, 3]);
+    /// assert_eq!(c.shape().dims(), vec![2, 3]);
     /// // Result: [[4.0, 3.0, 2.0], [9.0, 8.0, 7.0]]
     /// assert_eq!(c.get(&[0, 0]), 4.0); // 5.0 - 1.0
     /// assert_eq!(c.get(&[0, 1]), 3.0); // 5.0 - 2.0
@@ -111,7 +111,7 @@ impl Tensor {
     /// let a = Tensor::ones(vec![2, 3]);
     /// let b = Tensor::from_slice(&[0.5], vec![1]).unwrap();
     /// let c = a.sub_tensor(&b);
-    /// assert_eq!(c.shape().dims, vec![2, 3]);
+    /// assert_eq!(c.shape().dims(), vec![2, 3]);
     /// assert_eq!(c.get(&[0, 0]), 0.5); // 1.0 - 0.5
     /// ```
     ///
@@ -121,29 +121,35 @@ impl Tensor {
     #[track_caller]
     pub fn sub_tensor(&self, other: &Tensor) -> Tensor {
         // Check if shapes are identical for fast path
-        if self.shape().dims == other.shape().dims {
+        if self.shape().dims() == other.shape().dims() {
             return self.sub_tensor_same_shape(other);
         }
 
-        // Use broadcasting for different shapes
-        let (broadcast_self, broadcast_other, _result_shape) =
-            self.broadcast_with(other).unwrap_or_else(|e| {
+        // Zero-copy broadcast views, then reuse same-shape optimized path
+        use crate::tensor::ops::broadcasting::{broadcast_shapes_cow, BroadcastError};
+        let mut result = match broadcast_shapes_cow(self, other) {
+            Ok((a_b, b_b, _)) => a_b.as_ref().sub_tensor_optimized(b_b.as_ref()),
+            Err(BroadcastError::IncompatibleShapes { .. }) => {
                 panic!(
                     "Cannot broadcast tensor shapes {:?} and {:?}: {}",
-                    self.shape().dims,
-                    other.shape().dims,
-                    e
+                    self.shape().dims(),
+                    other.shape().dims(),
+                    "incompatible shapes"
                 );
-            });
-
-        // Perform element-wise subtraction on broadcasted tensors
-        let mut result = broadcast_self.sub_tensor_optimized(&broadcast_other);
+            }
+            Err(BroadcastError::AllocationFailed) => {
+                panic!("Memory allocation failed during broadcasting");
+            }
+        };
 
         if (self.requires_grad() || other.requires_grad()) && is_grad_enabled() {
             result.set_requires_grad_internal(true);
             let grad_fn = GradFn::Sub {
                 is_tensor_sub: true,
-                original_shapes: Some((self.shape().dims.clone(), other.shape().dims.clone())),
+                original_shapes: Some((
+                    self.shape().dims().to_vec(),
+                    other.shape().dims().to_vec(),
+                )),
             };
             result.set_grad_fn(grad_fn.clone());
 
@@ -243,7 +249,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[5.0, 7.0, 9.0], vec![3]).unwrap();
     /// let b = a.sub_scalar(2.0);
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 3.0); // 5.0 - 2.0
     /// assert_eq!(b.get(&[1]), 5.0); // 7.0 - 2.0
     /// assert_eq!(b.get(&[2]), 7.0); // 9.0 - 2.0
@@ -256,7 +262,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let b = a.sub_scalar(-2.0); // Subtracting negative = adding
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 3.0); // 1.0 - (-2.0) = 3.0
     /// assert_eq!(b.get(&[1]), 4.0); // 2.0 - (-2.0) = 4.0
     /// assert_eq!(b.get(&[2]), 5.0); // 3.0 - (-2.0) = 5.0
@@ -311,13 +317,29 @@ impl Tensor {
     /// This operation assumes the tensors have the same shape.
     #[inline]
     pub(crate) fn sub_tensor_optimized(&self, other: &Tensor) -> Tensor {
-        assert_eq!(self.shape(), other.shape(), "Tensor shapes must match");
+        assert_eq!(
+            self.shape().dims(),
+            other.shape().dims(),
+            "Tensor dims must match"
+        );
 
-        let mut output = Tensor::new(self.shape().dims.clone());
+        // Ensure contiguous sources for correctness with broadcast views/strides
+        let a_src = if self.is_contiguous() {
+            self.clone()
+        } else {
+            self.contiguous()
+        };
+        let b_src = if other.is_contiguous() {
+            other.clone()
+        } else {
+            other.contiguous()
+        };
+
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         unsafe {
-            let a = self.as_ptr();
-            let b = other.as_ptr();
+            let a = a_src.as_ptr();
+            let b = b_src.as_ptr();
             let dst = output.as_mut_ptr();
 
             #[cfg(target_arch = "x86_64")]
@@ -504,7 +526,7 @@ impl Tensor {
     /// parallelism.
     #[inline]
     pub(crate) fn sub_scalar_optimized(&self, scalar: f32) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         unsafe {
             let src = self.as_ptr();
@@ -662,7 +684,7 @@ mod tests {
         b.fill(2.0); // Create a tensor with all 2.0s
         let result = a.sub_tensor_optimized(&b);
 
-        assert_eq!(result.shape().dims, vec![2, 3]);
+        assert_eq!(result.shape().dims(), vec![2, 3]);
         assert_eq!(result.size(), 6);
 
         // Check that all values are 3.0 (5.0 - 2.0)
@@ -679,7 +701,7 @@ mod tests {
         tensor.fill(10.0); // Create a tensor with all 10.0s
         let result = tensor.sub_scalar_optimized(3.0);
 
-        assert_eq!(result.shape().dims, vec![2, 2]);
+        assert_eq!(result.shape().dims(), vec![2, 2]);
         assert_eq!(result.size(), 4);
 
         // Check that all values are 7.0 (10.0 - 3.0)
@@ -721,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Tensor shapes must match")]
+    #[should_panic(expected = "must match")]
     fn test_mismatched_shapes() {
         let a = Tensor::ones(vec![2, 3]);
         let b = Tensor::ones(vec![3, 2]);
@@ -816,7 +838,7 @@ mod tests {
         result.backward(None);
 
         // Check gradient: d/dx(x - c) = 1
-        if let Some(grad) = a.grad_by_value() {
+        if let Some(grad) = a.grad_owned() {
             unsafe {
                 for i in 0..grad.size() {
                     let val = grad.as_ptr().add(i).read();
@@ -850,7 +872,7 @@ mod tests {
         result.backward(None);
 
         // Check gradients: d/dx(x - y) = 1, d/dy(x - y) = -1
-        if let Some(grad_a) = a.grad_by_value() {
+        if let Some(grad_a) = a.grad_owned() {
             unsafe {
                 for i in 0..grad_a.size() {
                     let val = grad_a.as_ptr().add(i).read();
@@ -865,7 +887,7 @@ mod tests {
             panic!("No gradient A computed for tensor subtraction!");
         }
 
-        if let Some(grad_b) = b.grad_by_value() {
+        if let Some(grad_b) = b.grad_owned() {
             unsafe {
                 for i in 0..grad_b.size() {
                     let val = grad_b.as_ptr().add(i).read();
@@ -917,7 +939,7 @@ mod tests {
         // For computation: f = (a + 5) - b + c - 1
         // df/da = 1, df/db = -1, df/dc = 1
 
-        if let Some(grad_a) = a.grad_by_value() {
+        if let Some(grad_a) = a.grad_owned() {
             unsafe {
                 for i in 0..grad_a.size() {
                     let val = grad_a.as_ptr().add(i).read();
@@ -932,7 +954,7 @@ mod tests {
             panic!("No gradient A computed for mixed operations!");
         }
 
-        if let Some(grad_b) = b.grad_by_value() {
+        if let Some(grad_b) = b.grad_owned() {
             unsafe {
                 for i in 0..grad_b.size() {
                     let val = grad_b.as_ptr().add(i).read();
@@ -947,7 +969,7 @@ mod tests {
             panic!("No gradient B computed for mixed operations!");
         }
 
-        if let Some(grad_c) = c.grad_by_value() {
+        if let Some(grad_c) = c.grad_owned() {
             unsafe {
                 for i in 0..grad_c.size() {
                     let val = grad_c.as_ptr().add(i).read();
@@ -984,28 +1006,28 @@ mod tests {
             .with_requires_grad();
 
         let mut result = a.sub_tensor(&b);
-        assert_eq!(result.shape().dims, vec![2, 3]);
+        assert_eq!(result.shape().dims(), vec![2, 3]);
 
         // Set upstream gradient as ones
         result.backward(None);
 
-        let grad_a = a.grad_by_value().expect("grad_a should exist");
-        let grad_b = b.grad_by_value().expect("grad_b should exist");
+        let grad_a = a.grad_owned().expect("grad_a should exist");
+        let grad_b = b.grad_owned().expect("grad_b should exist");
 
         println!(
             "Original shapes: a={:?}, b={:?}",
-            a.shape().dims,
-            b.shape().dims
+            a.shape().dims(),
+            b.shape().dims()
         );
         println!(
             "Gradient shapes: grad_a={:?}, grad_b={:?}",
-            grad_a.shape().dims,
-            grad_b.shape().dims
+            grad_a.shape().dims(),
+            grad_b.shape().dims()
         );
 
         // grad_a should have same shape as a: [2, 3]
         assert_eq!(
-            grad_a.shape().dims,
+            grad_a.shape().dims(),
             vec![2, 3],
             "grad_a should match original shape of a"
         );
@@ -1013,7 +1035,7 @@ mod tests {
         // grad_b should have same shape as b: [1, 3]
         // This requires summing over the broadcasted dimension
         assert_eq!(
-            grad_b.shape().dims,
+            grad_b.shape().dims(),
             vec![1, 3],
             "grad_b should match original shape of b"
         );
@@ -1061,15 +1083,15 @@ mod tests {
         let mut result = a.sub_tensor(&b);
         result.backward(None);
 
-        let grad_a = a.grad_by_value().expect("grad_a should exist");
-        let grad_b = b.grad_by_value().expect("grad_b should exist");
+        let grad_a = a.grad_owned().expect("grad_a should exist");
+        let grad_b = b.grad_owned().expect("grad_b should exist");
 
         // grad_a should have same shape as a: [2, 3]
-        assert_eq!(grad_a.shape().dims, vec![2, 3]);
+        assert_eq!(grad_a.shape().dims(), vec![2, 3]);
 
         // grad_b should have same shape as b: [1] and sum to -6.0
-        println!("grad_b shape: {:?}, expected: [1]", grad_b.shape().dims);
-        assert_eq!(grad_b.shape().dims, vec![1]);
+        println!("grad_b shape: {:?}, expected: [1]", grad_b.shape().dims());
+        assert_eq!(grad_b.shape().dims(), vec![1]);
 
         // grad_b should be -6.0 (sum over all 6 elements, then negated)
         let val = unsafe { *grad_b.as_ptr() };

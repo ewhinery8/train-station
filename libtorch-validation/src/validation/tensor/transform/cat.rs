@@ -88,7 +88,7 @@ impl TensorValidator {
 
         // Compare all input grads
         for (i, s) in shapes.iter().enumerate() {
-            let our_g = match our_inputs[i].grad_by_value() {
+            let our_g = match our_inputs[i].grad_owned() {
                 Some(g) => g,
                 None => {
                     return ComparisonResult::failure(format!("our grad missing for input {}", i))
@@ -107,7 +107,7 @@ impl TensorValidator {
                     i, cmp.details
                 ));
             }
-            if our_g.shape().dims != *s {
+            if our_g.shape().dims() != *s {
                 return ComparisonResult::failure(format!("grad shape mismatch input {}", i));
             }
         }

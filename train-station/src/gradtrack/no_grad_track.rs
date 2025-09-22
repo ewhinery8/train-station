@@ -35,7 +35,8 @@ thread_local! {
 /// # Examples
 ///
 /// ```rust
-/// use train_station::{NoGradTrack, Tensor};
+/// use train_station::gradtrack::{NoGradTrack};
+/// use train_station::Tensor;
 ///
 /// let x = Tensor::ones(vec![3, 3]).with_requires_grad();
 /// let y = Tensor::ones(vec![3, 3]).with_requires_grad();
@@ -59,7 +60,7 @@ thread_local! {
 /// # Nested Contexts
 ///
 /// ```rust
-/// use train_station::{NoGradTrack, is_grad_enabled, Tensor};
+/// use train_station::{gradtrack::NoGradTrack, gradtrack::is_grad_enabled, Tensor};
 ///
 /// assert!(is_grad_enabled());
 ///
@@ -142,7 +143,7 @@ impl Drop for NoGradTrack {
 /// # Examples
 ///
 /// ```rust
-/// use train_station::{NoGradTrack, is_grad_enabled};
+/// use train_station::gradtrack::{NoGradTrack, is_grad_enabled};
 ///
 /// assert!(is_grad_enabled()); // Default state
 ///
@@ -179,7 +180,7 @@ pub fn is_grad_enabled() -> bool {
 /// # Examples
 ///
 /// ```rust
-/// use train_station::{set_grad_enabled, is_grad_enabled};
+/// use train_station::gradtrack::{set_grad_enabled, is_grad_enabled};
 ///
 /// assert!(is_grad_enabled());
 /// set_grad_enabled(false);
@@ -216,7 +217,7 @@ pub fn set_grad_enabled(enabled: bool) {
 /// # Examples
 ///
 /// ```rust
-/// use train_station::{Tensor, with_no_grad, is_grad_enabled};
+/// use train_station::{Tensor, gradtrack::with_no_grad, gradtrack::is_grad_enabled};
 ///
 /// let x = Tensor::ones(vec![2, 2]).with_requires_grad();
 /// let y = Tensor::ones(vec![2, 2]).with_requires_grad();

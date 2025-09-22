@@ -34,9 +34,9 @@
 //! let mut filled = Tensor::new(vec![2, 3]);
 //! filled.fill(42.0);
 //!
-//! assert_eq!(zeros.shape().dims, vec![2, 3]);
-//! assert_eq!(ones.shape().dims, vec![2, 3]);
-//! assert_eq!(filled.shape().dims, vec![2, 3]);
+//! assert_eq!(zeros.shape().dims(), vec![2, 3]);
+//! assert_eq!(ones.shape().dims(), vec![2, 3]);
+//! assert_eq!(filled.shape().dims(), vec![2, 3]);
 //!
 //! // Verify initialization values
 //! assert_eq!(zeros.get(&[0, 0]), 0.0);
@@ -127,7 +127,7 @@ impl Tensor {
     ///
     /// let tensor = Tensor::zeros(vec![2, 3]);
     /// assert_eq!(tensor.size(), 6);
-    /// assert_eq!(tensor.shape().dims, vec![2, 3]);
+    /// assert_eq!(tensor.shape().dims(), vec![2, 3]);
     ///
     /// // Verify all elements are zero
     /// assert_eq!(tensor.get(&[0, 0]), 0.0);
@@ -167,7 +167,7 @@ impl Tensor {
     ///
     /// let tensor = Tensor::ones(vec![2, 3]);
     /// assert_eq!(tensor.size(), 6);
-    /// assert_eq!(tensor.shape().dims, vec![2, 3]);
+    /// assert_eq!(tensor.shape().dims(), vec![2, 3]);
     ///
     /// // Verify all elements are one
     /// assert_eq!(tensor.get(&[0, 0]), 1.0);
@@ -307,7 +307,7 @@ impl Tensor {
     #[inline]
     #[track_caller]
     pub fn fill(&mut self, value: f32) {
-        if self.shape().size == 0 {
+        if self.shape().size() == 0 {
             return;
         }
 
@@ -324,7 +324,7 @@ impl Tensor {
             }
 
             // Fallback to scalar operations
-            for i in 0..self.shape().size {
+            for i in 0..self.shape().size() {
                 *ptr.add(i) = value;
             }
         }
@@ -366,7 +366,7 @@ impl Tensor {
     unsafe fn fill_simd_avx2(&self, ptr: *mut f32, value: f32) {
         let mut_ptr = ptr;
         let value_vec = _mm256_set1_ps(value);
-        let size = self.shape().size;
+        let size = self.shape().size();
         let simd_count = size / 32; // Process 32 elements per iteration
         let mut offset = 0;
 
@@ -405,7 +405,7 @@ mod tests {
     fn test_zeros_basic() {
         let tensor = Tensor::zeros(vec![2, 3]);
         assert_eq!(tensor.size(), 6);
-        assert_eq!(tensor.shape().dims, vec![2, 3]);
+        assert_eq!(tensor.shape().dims(), vec![2, 3]);
 
         // Verify all elements are zero
         for i in 0..tensor.size() {
@@ -419,7 +419,7 @@ mod tests {
     fn test_ones_basic() {
         let tensor = Tensor::ones(vec![2, 3]);
         assert_eq!(tensor.size(), 6);
-        assert_eq!(tensor.shape().dims, vec![2, 3]);
+        assert_eq!(tensor.shape().dims(), vec![2, 3]);
 
         // Verify all elements are one
         for i in 0..tensor.size() {
