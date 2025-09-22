@@ -8,6 +8,7 @@ use crate::validation::core::{ComparisonResult, TensorValidator};
 use std::sync::{Arc, RwLock};
 use train_station::optimizers::Optimizer;
 use train_station::optimizers::{Adam, AdamConfig};
+use train_station::tensor::with_no_mem_pool;
 use train_station::Tensor;
 
 /// Configuration for Adam optimizer validation tests
@@ -598,7 +599,7 @@ impl AdamValidator {
         // Check that gradients exist before zero_grad
         {
             let param_guard = our_param_locked.read().unwrap();
-            if param_guard.grad_by_value().is_none() {
+            if param_guard.grad_owned().is_none() {
                 return ComparisonResult::failure(
                     "No gradients generated before zero_grad".to_string(),
                 );
@@ -610,13 +611,13 @@ impl AdamValidator {
             let mut param_guard = our_param_locked.write().unwrap();
             param_guard.zero_grad();
         }
-        train_station::clear_gradients(); // Ensure global gradient map is cleared
+        train_station::gradtrack::clear_gradients(); // Ensure global gradient map is cleared
 
         let our_grad = {
             let param_guard = our_param_locked.read().unwrap();
             param_guard
-                .grad_by_value()
-                .unwrap_or_else(|| Tensor::zeros(param_guard.shape().dims.clone()))
+                .grad_owned()
+                .unwrap_or_else(|| Tensor::zeros(param_guard.shape().dims().to_vec()))
         };
 
         // LibTorch implementation
@@ -659,7 +660,7 @@ impl AdamValidator {
         our_output.sum().backward(None);
 
         // Check that gradients exist before zero_grad
-        if our_param.grad_by_value().is_none() {
+        if our_param.grad_owned().is_none() {
             return ComparisonResult::failure(
                 "No gradients generated before zero_grad".to_string(),
             );
@@ -667,11 +668,11 @@ impl AdamValidator {
 
         // Use optimizer-style zero_grad (which calls gradtrack::clear_gradients)
         our_param.zero_grad();
-        train_station::clear_gradients(); // Ensure global gradient map is cleared
+        train_station::gradtrack::clear_gradients(); // Ensure global gradient map is cleared
 
         let our_grad = our_param
-            .grad_by_value()
-            .unwrap_or_else(|| Tensor::zeros(our_param.shape().dims.clone()));
+            .grad_owned()
+            .unwrap_or_else(|| Tensor::zeros(our_param.shape().dims().to_vec()));
 
         // LibTorch implementation
         let torch_param = LibTorchTensor::from_data(&data, shape).unwrap();
@@ -1271,6 +1272,439 @@ impl AdamValidator {
 
         ComparisonResult::success()
     }
+
+    /// Validate a deep two-layer linear network with cross-thread parameter usage and retained grads
+    /// Ensures:
+    /// - Leaf gradients are populated correctly even when parameters are touched across threads
+    /// - Non-leaf retained gradients can be materialized
+    /// - Adam optimizer steps match LibTorch results numerically
+    pub fn validate_two_layer_linear_cross_thread_and_retained(
+        &self,
+        batch: usize,
+        in_dim: usize,
+        hidden_dim: usize,
+        out_dim: usize,
+        config: &AdamValidationConfig,
+    ) -> ComparisonResult {
+        use std::thread;
+
+        // --- Build deterministic inputs ---
+        let x_data: Vec<f32> = (0..batch * in_dim)
+            .map(|i| (i as f32) * 0.01 + 0.25)
+            .collect();
+        let target_data: Vec<f32> = (0..batch * out_dim)
+            .map(|i| (i as f32) * 0.02 + 0.1)
+            .collect();
+
+        // Our params
+        let mut w1 = match Tensor::from_slice(
+            &(0..in_dim * hidden_dim)
+                .map(|i| (i as f32) * 0.01 - 0.5)
+                .collect::<Vec<_>>(),
+            vec![in_dim, hidden_dim],
+        ) {
+            Ok(t) => t.with_requires_grad(),
+            Err(e) => return ComparisonResult::failure(format!("from_slice w1 failed: {}", e)),
+        };
+        let mut b1 = match Tensor::from_slice(
+            &(0..hidden_dim)
+                .map(|i| (i as f32) * 0.005 - 0.1)
+                .collect::<Vec<_>>(),
+            vec![hidden_dim],
+        ) {
+            Ok(t) => t.with_requires_grad(),
+            Err(e) => return ComparisonResult::failure(format!("from_slice b1 failed: {}", e)),
+        };
+        let mut w2 = match Tensor::from_slice(
+            &(0..hidden_dim * out_dim)
+                .map(|i| (i as f32) * 0.02 - 0.3)
+                .collect::<Vec<_>>(),
+            vec![hidden_dim, out_dim],
+        ) {
+            Ok(t) => t.with_requires_grad(),
+            Err(e) => return ComparisonResult::failure(format!("from_slice w2 failed: {}", e)),
+        };
+        let mut b2 = match Tensor::from_slice(
+            &(0..out_dim)
+                .map(|i| (i as f32) * 0.003 - 0.05)
+                .collect::<Vec<_>>(),
+            vec![out_dim],
+        ) {
+            Ok(t) => t.with_requires_grad(),
+            Err(e) => return ComparisonResult::failure(format!("from_slice b2 failed: {}", e)),
+        };
+
+        // Build optimizer (our)
+        let our_options = AdamConfig {
+            learning_rate: config.lr as f32,
+            beta1: config.beta1 as f32,
+            beta2: config.beta2 as f32,
+            eps: config.eps as f32,
+            weight_decay: config.weight_decay as f32,
+            amsgrad: config.amsgrad,
+        };
+        let mut our_adam = Adam::with_config(our_options);
+        our_adam.add_parameter(&w1);
+        our_adam.add_parameter(&b1);
+        our_adam.add_parameter(&w2);
+        our_adam.add_parameter(&b2);
+
+        // Torch params and optimizer
+        let torch_w1 = match LibTorchTensor::from_data(
+            &(0..in_dim * hidden_dim)
+                .map(|i| (i as f32) * 0.01 - 0.5)
+                .collect::<Vec<_>>(),
+            &[in_dim, hidden_dim],
+        ) {
+            Ok(t) => {
+                if let Err(e) = t.requires_grad(true) {
+                    return ComparisonResult::failure(format!("requires_grad w1: {}", e));
+                }
+                t
+            }
+            Err(e) => {
+                return ComparisonResult::failure(format!("torch from_data w1 failed: {}", e))
+            }
+        };
+        let torch_b1 = match LibTorchTensor::from_data(
+            &(0..hidden_dim)
+                .map(|i| (i as f32) * 0.005 - 0.1)
+                .collect::<Vec<_>>(),
+            &[hidden_dim],
+        ) {
+            Ok(t) => {
+                if let Err(e) = t.requires_grad(true) {
+                    return ComparisonResult::failure(format!("requires_grad b1: {}", e));
+                }
+                t
+            }
+            Err(e) => {
+                return ComparisonResult::failure(format!("torch from_data b1 failed: {}", e))
+            }
+        };
+        let torch_w2 = match LibTorchTensor::from_data(
+            &(0..hidden_dim * out_dim)
+                .map(|i| (i as f32) * 0.02 - 0.3)
+                .collect::<Vec<_>>(),
+            &[hidden_dim, out_dim],
+        ) {
+            Ok(t) => {
+                if let Err(e) = t.requires_grad(true) {
+                    return ComparisonResult::failure(format!("requires_grad w2: {}", e));
+                }
+                t
+            }
+            Err(e) => {
+                return ComparisonResult::failure(format!("torch from_data w2 failed: {}", e))
+            }
+        };
+        let torch_b2 = match LibTorchTensor::from_data(
+            &(0..out_dim)
+                .map(|i| (i as f32) * 0.003 - 0.05)
+                .collect::<Vec<_>>(),
+            &[out_dim],
+        ) {
+            Ok(t) => {
+                if let Err(e) = t.requires_grad(true) {
+                    return ComparisonResult::failure(format!("requires_grad b2: {}", e));
+                }
+                t
+            }
+            Err(e) => {
+                return ComparisonResult::failure(format!("torch from_data b2 failed: {}", e))
+            }
+        };
+        let torch_adam = match LibTorchAdam::new(
+            &[&torch_w1, &torch_b1, &torch_w2, &torch_b2],
+            config.lr,
+            config.beta1,
+            config.beta2,
+            config.eps,
+            config.weight_decay,
+            config.amsgrad,
+        ) {
+            Ok(o) => o,
+            Err(e) => return ComparisonResult::failure(format!("torch adam new failed: {}", e)),
+        };
+
+        for _ in 0..config.steps {
+            // Inputs and target for both sides
+            let x_base = match Tensor::from_slice(&x_data, vec![batch, in_dim]) {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("from_slice x failed: {}", e)),
+            };
+            let target = match Tensor::from_slice(&target_data, vec![batch, out_dim]) {
+                Ok(t) => t,
+                Err(e) => {
+                    return ComparisonResult::failure(format!("from_slice target failed: {}", e))
+                }
+            };
+
+            let torch_x = LibTorchTensor::from_data(&x_data, &[batch, in_dim]).unwrap();
+            let torch_target = LibTorchTensor::from_data(&target_data, &[batch, out_dim]).unwrap();
+
+            // Cross-thread identity view for input to exercise graph unification
+            let x = thread::spawn(move || with_no_mem_pool(|| x_base.add_scalar(0.0)))
+                .join()
+                .unwrap();
+
+            // Forward: (x @ w1 + b1) -> retain grad -> (..) @ w2 + b2
+            let mut hidden = x.matmul(&w1).add_tensor(&b1);
+            hidden = hidden.retain_grad();
+            let out = hidden.matmul(&w2).add_tensor(&b2);
+
+            // Loss: MSE vs target
+            let diff = out.sub_tensor(&target);
+            let mut loss = diff.pow_scalar(2.0).mean();
+
+            // Backward
+            loss.backward(None);
+            // Validate leaf grads exist and retained grad is materialized
+            if w1.grad_owned().is_none()
+                || w2.grad_owned().is_none()
+                || b1.grad_owned().is_none()
+                || b2.grad_owned().is_none()
+            {
+                return ComparisonResult::failure(
+                    "Leaf gradients missing after backward".to_string(),
+                );
+            }
+
+            let ok_mat = hidden.materialize_grad();
+            if !ok_mat {
+                return ComparisonResult::failure(
+                    "Failed to materialize retained grad for hidden".to_string(),
+                );
+            }
+
+            // Torch forward/backward
+            let torch_hidden = match torch_x
+                .matmul(&torch_w1)
+                .and_then(|t| t.add_tensor(&torch_b1))
+            {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("torch hidden failed: {}", e)),
+            };
+            let torch_out = match torch_hidden
+                .matmul(&torch_w2)
+                .and_then(|t| t.add_tensor(&torch_b2))
+            {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("torch out failed: {}", e)),
+            };
+            let torch_diff = match torch_out.sub_tensor(&torch_target) {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("torch diff: {}", e)),
+            };
+            let torch_sq = match torch_diff.pow_scalar(2.0) {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("torch pow: {}", e)),
+            };
+            let torch_loss = match torch_sq.mean() {
+                Ok(t) => t,
+                Err(e) => return ComparisonResult::failure(format!("torch mean: {}", e)),
+            };
+            if let Err(e) = torch_loss.backward(None) {
+                return ComparisonResult::failure(format!("torch backward failed: {}", e));
+            }
+            // Step optimizers
+            our_adam.step(&mut [&mut w1, &mut b1, &mut w2, &mut b2]);
+            our_adam.zero_grad(&mut [&mut w1, &mut b1, &mut w2, &mut b2]);
+            if let Err(e) = torch_adam.step() {
+                return ComparisonResult::failure(format!("torch step failed: {}", e));
+            }
+            if let Err(e) = torch_adam.zero_grad() {
+                return ComparisonResult::failure(format!("torch zero_grad failed: {}", e));
+            }
+        }
+
+        // Compare final parameters
+        let w1_f = &w1;
+        let b1_f = &b1;
+        let w2_f = &w2;
+        let b2_f = &b2;
+
+        let mut results = vec![
+            self.tensor_validator.compare_tensors(w1_f, &torch_w1),
+            self.tensor_validator.compare_tensors(b1_f, &torch_b1),
+            self.tensor_validator.compare_tensors(w2_f, &torch_w2),
+            self.tensor_validator.compare_tensors(b2_f, &torch_b2),
+        ];
+        for r in results.drain(..) {
+            if !r.passed {
+                return r;
+            }
+        }
+        ComparisonResult::success()
+    }
+
+    /// Validate multi-branch forward with heterogeneous losses (mean and sum) over multiple parameters
+    pub fn validate_multi_branch_different_losses(
+        &self,
+        batch: usize,
+        in_dim: usize,
+        out1: usize,
+        out2: usize,
+        config: &AdamValidationConfig,
+    ) -> ComparisonResult {
+        let x_data: Vec<f32> = (0..batch * in_dim)
+            .map(|i| (i as f32) * 0.013 - 0.2)
+            .collect();
+
+        // Our params (two heads)
+        let w1 = Tensor::from_slice(
+            &(0..in_dim * out1)
+                .map(|i| (i as f32) * 0.02 - 0.4)
+                .collect::<Vec<_>>(),
+            vec![in_dim, out1],
+        )
+        .unwrap()
+        .with_requires_grad();
+        let b1 = Tensor::from_slice(
+            &(0..out1)
+                .map(|i| (i as f32) * 0.01 - 0.1)
+                .collect::<Vec<_>>(),
+            vec![out1],
+        )
+        .unwrap()
+        .with_requires_grad();
+        let w2 = Tensor::from_slice(
+            &(0..in_dim * out2)
+                .map(|i| (i as f32) * 0.015 - 0.3)
+                .collect::<Vec<_>>(),
+            vec![in_dim, out2],
+        )
+        .unwrap()
+        .with_requires_grad();
+        let b2 = Tensor::from_slice(
+            &(0..out2)
+                .map(|i| (i as f32) * 0.02 - 0.2)
+                .collect::<Vec<_>>(),
+            vec![out2],
+        )
+        .unwrap()
+        .with_requires_grad();
+
+        let mut w1 = w1;
+        let mut b1 = b1;
+        let mut w2 = w2;
+        let mut b2 = b2;
+
+        let our_options = AdamConfig {
+            learning_rate: config.lr as f32,
+            beta1: config.beta1 as f32,
+            beta2: config.beta2 as f32,
+            eps: config.eps as f32,
+            weight_decay: config.weight_decay as f32,
+            amsgrad: config.amsgrad,
+        };
+        let mut our_adam = Adam::with_config(our_options);
+        our_adam.add_parameter(&w1);
+        our_adam.add_parameter(&b1);
+        our_adam.add_parameter(&w2);
+        our_adam.add_parameter(&b2);
+
+        // Torch side
+        let torch_w1 = LibTorchTensor::from_data(
+            &(0..in_dim * out1)
+                .map(|i| (i as f32) * 0.02 - 0.4)
+                .collect::<Vec<_>>(),
+            &[in_dim, out1],
+        )
+        .unwrap()
+        .requires_grad_(true)
+        .unwrap();
+        let torch_b1 = LibTorchTensor::from_data(
+            &(0..out1)
+                .map(|i| (i as f32) * 0.01 - 0.1)
+                .collect::<Vec<_>>(),
+            &[out1],
+        )
+        .unwrap()
+        .requires_grad_(true)
+        .unwrap();
+        let torch_w2 = LibTorchTensor::from_data(
+            &(0..in_dim * out2)
+                .map(|i| (i as f32) * 0.015 - 0.3)
+                .collect::<Vec<_>>(),
+            &[in_dim, out2],
+        )
+        .unwrap()
+        .requires_grad_(true)
+        .unwrap();
+        let torch_b2 = LibTorchTensor::from_data(
+            &(0..out2)
+                .map(|i| (i as f32) * 0.02 - 0.2)
+                .collect::<Vec<_>>(),
+            &[out2],
+        )
+        .unwrap()
+        .requires_grad_(true)
+        .unwrap();
+        let torch_adam = LibTorchAdam::new(
+            &[&torch_w1, &torch_b1, &torch_w2, &torch_b2],
+            config.lr,
+            config.beta1,
+            config.beta2,
+            config.eps,
+            config.weight_decay,
+            config.amsgrad,
+        )
+        .unwrap();
+
+        for _ in 0..config.steps {
+            let x = Tensor::from_slice(&x_data, vec![batch, in_dim]).unwrap();
+            let torch_x = LibTorchTensor::from_data(&x_data, &[batch, in_dim]).unwrap();
+
+            // Branch 1: mean loss
+            let y1 = x.matmul(&w1).add_tensor(&b1);
+            let loss1 = y1.mean();
+
+            // Branch 2: sum loss
+            let y2 = x.matmul(&w2).add_tensor(&b2);
+            let loss2 = y2.sum();
+
+            let mut total = loss1.add_tensor(&loss2);
+            total.backward(None);
+
+            // Torch
+            let ty1 = torch_x
+                .matmul(&torch_w1)
+                .and_then(|t| t.add_tensor(&torch_b1))
+                .unwrap();
+            let tl1 = ty1.mean().unwrap();
+            let ty2 = torch_x
+                .matmul(&torch_w2)
+                .and_then(|t| t.add_tensor(&torch_b2))
+                .unwrap();
+            let tl2 = ty2.sum().unwrap();
+            let ttotal = tl1.add_tensor(&tl2).unwrap();
+            ttotal.backward(None).unwrap();
+
+            // Step
+            our_adam.step(&mut [&mut w1, &mut b1, &mut w2, &mut b2]);
+            our_adam.zero_grad(&mut [&mut w1, &mut b1, &mut w2, &mut b2]);
+            torch_adam.step().unwrap();
+            torch_adam.zero_grad().unwrap();
+        }
+
+        // Compare parameters
+        let w1_f = &w1;
+        let b1_f = &b1;
+        let w2_f = &w2;
+        let b2_f = &b2;
+        for r in [
+            self.tensor_validator.compare_tensors(w1_f, &torch_w1),
+            self.tensor_validator.compare_tensors(b1_f, &torch_b1),
+            self.tensor_validator.compare_tensors(w2_f, &torch_w2),
+            self.tensor_validator.compare_tensors(b2_f, &torch_b2),
+        ] {
+            if !r.passed {
+                return r;
+            }
+        }
+        ComparisonResult::success()
+    }
 }
 
 #[cfg(test)]
@@ -1403,6 +1837,25 @@ mod tests {
                 shape, result_unsafe.details
             );
         }
+    }
+
+    #[test]
+    fn test_two_layer_linear_cross_thread_and_retained() {
+        let mut validator = AdamValidator::default();
+        validator.tensor_validator.rtol = 0.01;
+        validator.tensor_validator.atol = 0.01;
+        let config = AdamValidationConfig::default();
+        let result =
+            validator.validate_two_layer_linear_cross_thread_and_retained(4, 5, 6, 3, &config);
+        assert!(result.passed, "{}", result.details);
+    }
+
+    #[test]
+    fn test_multi_branch_different_losses() {
+        let validator = AdamValidator::default();
+        let config = AdamValidationConfig::default();
+        let result = validator.validate_multi_branch_different_losses(3, 4, 5, 6, &config);
+        assert!(result.passed, "{}", result.details);
     }
 
     #[test]

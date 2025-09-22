@@ -53,7 +53,7 @@ pub(crate) fn apply_reduce_max_dims(
     reduced.sort_unstable();
     reduced.dedup();
     let mut coords = vec![0usize; rank];
-    let mut max_counts = Tensor::zeros(saved_output.shape().dims.clone());
+    let mut max_counts = Tensor::zeros(saved_output.shape().dims().to_vec());
     // Count per output position
     for lin in 0..saved_input.size() {
         let mut tmp = lin;

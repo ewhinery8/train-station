@@ -50,7 +50,7 @@
 //!
 //! // Deserialize from JSON
 //! let loaded_tensor = Tensor::from_json(&json).unwrap();
-//! assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+//! assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
 //! assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
 //!
 //! // Serialize to binary
@@ -59,7 +59,7 @@
 //!
 //! // Deserialize from binary
 //! let loaded_tensor = Tensor::from_binary(&binary).unwrap();
-//! assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+//! assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
 //! ```
 //!
 //! ## Tensor as Struct Field
@@ -117,8 +117,8 @@
 //! assert_eq!(weights.learning_rate, loaded_weights.learning_rate);
 //! assert_eq!(weights.name, loaded_weights.name);
 //! assert_eq!(
-//!     weights.weight_matrix.shape().dims,
-//!     loaded_weights.weight_matrix.shape().dims
+//!     weights.weight_matrix.shape().dims(),
+//!     loaded_weights.weight_matrix.shape().dims()
 //! );
 //! ```
 //!
@@ -143,7 +143,7 @@
 //! let loaded_tensor = Tensor::from_binary(&binary).unwrap();
 //!
 //! // Verify properties
-//! assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+//! assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
 //! assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
 //!
 //! // Verify data integrity
@@ -375,10 +375,13 @@ impl ToFieldValue for Shape {
     /// Object containing all shape metadata
     fn to_field_value(&self) -> FieldValue {
         let mut object = HashMap::new();
-        object.insert("dims".to_string(), self.dims.to_field_value());
-        object.insert("size".to_string(), self.size.to_field_value());
-        object.insert("strides".to_string(), self.strides.to_field_value());
-        object.insert("layout".to_string(), self.layout.to_field_value());
+        object.insert("dims".to_string(), self.dims().to_vec().to_field_value());
+        object.insert("size".to_string(), self.size().to_field_value());
+        object.insert(
+            "strides".to_string(),
+            self.strides().to_vec().to_field_value(),
+        );
+        object.insert("layout".to_string(), self.layout().to_field_value());
         FieldValue::from_object(object)
     }
 }
@@ -458,12 +461,18 @@ impl FromFieldValue for Shape {
             });
         }
 
-        Ok(Shape {
-            dims,
-            size,
-            strides,
-            layout,
-        })
+        // Use the appropriate constructor based on layout
+        let mut shape = match layout {
+            crate::tensor::MemoryLayout::Contiguous => Shape::new(dims),
+            _ => Shape::with_strides(dims, strides),
+        };
+
+        // For view layouts, we need to set it as a view
+        if matches!(layout, crate::tensor::MemoryLayout::View) {
+            shape = Shape::as_view(shape.dims().to_vec(), shape.strides().to_vec());
+        }
+
+        Ok(shape)
     }
 }
 
@@ -511,19 +520,19 @@ impl StructSerializable for Tensor {
         let requires_grad: bool = deserializer.field("requires_grad")?;
 
         // Validate data size matches shape
-        if data.len() != shape.size {
+        if data.len() != shape.size() {
             return Err(SerializationError::ValidationFailed {
                 field: "tensor".to_string(),
                 message: format!(
                     "Data length {} doesn't match shape size {}",
                     data.len(),
-                    shape.size
+                    shape.size()
                 ),
             });
         }
 
         // Create new tensor with the deserialized shape on the correct device
-        let mut tensor = Tensor::new_on_device(shape.dims.clone(), device);
+        let mut tensor = Tensor::new_on_device(shape.dims().to_vec(), device);
 
         // Copy data into tensor
         if !data.is_empty() {
@@ -537,9 +546,9 @@ impl StructSerializable for Tensor {
         tensor.set_requires_grad(requires_grad);
 
         // Validate that the reconstructed shape matches
-        if tensor.shape().dims != shape.dims
-            || tensor.shape().size != shape.size
-            || tensor.shape().strides != shape.strides
+        if tensor.shape().dims() != shape.dims()
+            || tensor.shape().size() != shape.size()
+            || tensor.shape().strides() != shape.strides()
         {
             return Err(SerializationError::ValidationFailed {
                 field: "tensor".to_string(),
@@ -663,7 +672,7 @@ impl crate::serialization::Serializable for Tensor {
     /// let json = original.to_json().unwrap();
     /// let restored = Tensor::from_json(&json).unwrap();
     ///
-    /// assert_eq!(original.shape().dims, restored.shape().dims);
+    /// assert_eq!(original.shape().dims(), restored.shape().dims());
     /// assert_eq!(original.get(&[0, 1]), restored.get(&[0, 1]));
     /// assert_eq!(original.requires_grad(), restored.requires_grad());
     /// ```
@@ -727,7 +736,7 @@ impl crate::serialization::Serializable for Tensor {
     /// let binary = original.to_binary().unwrap();
     /// let restored = Tensor::from_binary(&binary).unwrap();
     ///
-    /// assert_eq!(original.shape().dims, restored.shape().dims);
+    /// assert_eq!(original.shape().dims(), restored.shape().dims());
     /// assert_eq!(original.get(&[2, 3]), restored.get(&[2, 3]));
     /// assert_eq!(original.requires_grad(), restored.requires_grad());
     /// ```
@@ -824,9 +833,9 @@ mod tests {
         let field_value = shape.to_field_value();
         let deserialized = Shape::from_field_value(field_value, "shape").unwrap();
         assert_eq!(shape, deserialized);
-        assert_eq!(deserialized.dims, vec![2, 3, 4]);
-        assert_eq!(deserialized.size, 24);
-        assert_eq!(deserialized.strides, vec![12, 4, 1]);
+        assert_eq!(deserialized.dims(), vec![2, 3, 4]);
+        assert_eq!(deserialized.size(), 24);
+        assert_eq!(deserialized.strides(), vec![12, 4, 1]);
 
         // Test strided shape
         let strided_shape = Shape::with_strides(vec![2, 3], vec![6, 2]);
@@ -892,7 +901,7 @@ mod tests {
         let loaded_tensor = Tensor::from_json(&json).unwrap();
 
         // Verify tensor properties
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.size(), loaded_tensor.size());
         assert_eq!(tensor.device(), loaded_tensor.device());
         assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
@@ -923,7 +932,7 @@ mod tests {
         let loaded_tensor = Tensor::from_binary(&binary).unwrap();
 
         // Verify tensor properties
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.size(), loaded_tensor.size());
         assert_eq!(tensor.device(), loaded_tensor.device());
         assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
@@ -945,13 +954,13 @@ mod tests {
         let json = tensor.to_json().unwrap();
         let loaded_tensor = Tensor::from_json(&json).unwrap();
         assert_eq!(tensor.size(), loaded_tensor.size());
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
 
         // Binary roundtrip
         let binary = tensor.to_binary().unwrap();
         let loaded_tensor = Tensor::from_binary(&binary).unwrap();
         assert_eq!(tensor.size(), loaded_tensor.size());
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
     }
 
     #[test]
@@ -971,7 +980,7 @@ mod tests {
         let loaded_tensor = Tensor::from_binary(&binary).unwrap();
 
         // Verify properties
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
 
         // Verify a subset of data
@@ -1034,12 +1043,12 @@ mod tests {
         assert_eq!(weights.learning_rate, loaded_weights.learning_rate);
         assert_eq!(weights.name, loaded_weights.name);
         assert_eq!(
-            weights.weight_matrix.shape().dims,
-            loaded_weights.weight_matrix.shape().dims
+            weights.weight_matrix.shape().dims(),
+            loaded_weights.weight_matrix.shape().dims()
         );
         assert_eq!(
-            weights.bias_vector.shape().dims,
-            loaded_weights.bias_vector.shape().dims
+            weights.bias_vector.shape().dims(),
+            loaded_weights.bias_vector.shape().dims()
         );
         assert_eq!(
             weights.bias_vector.requires_grad(),
@@ -1067,8 +1076,8 @@ mod tests {
         assert_eq!(weights.learning_rate, loaded_weights.learning_rate);
         assert_eq!(weights.name, loaded_weights.name);
         assert_eq!(
-            weights.weight_matrix.shape().dims,
-            loaded_weights.weight_matrix.shape().dims
+            weights.weight_matrix.shape().dims(),
+            loaded_weights.weight_matrix.shape().dims()
         );
         assert_eq!(
             weights.bias_vector.requires_grad(),
@@ -1131,16 +1140,16 @@ mod tests {
         let loaded = MultiTensorStruct::from_json(&json).unwrap();
 
         assert_eq!(
-            multi_tensor.tensor_1d.shape().dims,
-            loaded.tensor_1d.shape().dims
+            multi_tensor.tensor_1d.shape().dims(),
+            loaded.tensor_1d.shape().dims()
         );
         assert_eq!(
-            multi_tensor.tensor_2d.shape().dims,
-            loaded.tensor_2d.shape().dims
+            multi_tensor.tensor_2d.shape().dims(),
+            loaded.tensor_2d.shape().dims()
         );
         assert_eq!(
-            multi_tensor.tensor_3d.shape().dims,
-            loaded.tensor_3d.shape().dims
+            multi_tensor.tensor_3d.shape().dims(),
+            loaded.tensor_3d.shape().dims()
         );
         assert_eq!(
             multi_tensor.tensor_2d.requires_grad(),
@@ -1163,8 +1172,8 @@ mod tests {
         let binary = multi_tensor.to_binary().unwrap();
         let loaded = MultiTensorStruct::from_binary(&binary).unwrap();
         assert_eq!(
-            multi_tensor.tensor_1d.shape().dims,
-            loaded.tensor_1d.shape().dims
+            multi_tensor.tensor_1d.shape().dims(),
+            loaded.tensor_1d.shape().dims()
         );
         assert_eq!(
             multi_tensor.tensor_2d.requires_grad(),
@@ -1205,7 +1214,7 @@ mod tests {
         let field_value = tensor.to_field_value();
         let loaded_tensor = Tensor::from_field_value(field_value, "test_tensor").unwrap();
 
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.get(&[0, 0]), loaded_tensor.get(&[0, 0]));
         assert_eq!(tensor.get(&[1, 1]), loaded_tensor.get(&[1, 1]));
     }
@@ -1226,13 +1235,13 @@ mod tests {
             // JSON roundtrip
             let json = tensor.to_json().unwrap();
             let loaded = Tensor::from_json(&json).unwrap();
-            assert_eq!(tensor.shape().dims, loaded.shape().dims);
+            assert_eq!(tensor.shape().dims(), loaded.shape().dims());
             assert_eq!(tensor.requires_grad(), loaded.requires_grad());
 
             // Binary roundtrip
             let binary = tensor.to_binary().unwrap();
             let loaded = Tensor::from_binary(&binary).unwrap();
-            assert_eq!(tensor.shape().dims, loaded.shape().dims);
+            assert_eq!(tensor.shape().dims(), loaded.shape().dims());
             assert_eq!(tensor.requires_grad(), loaded.requires_grad());
         }
     }
@@ -1258,7 +1267,7 @@ mod tests {
 
         // Test from_json method
         let restored = <Tensor as crate::serialization::Serializable>::from_json(&json).unwrap();
-        assert_eq!(tensor.shape().dims, restored.shape().dims);
+        assert_eq!(tensor.shape().dims(), restored.shape().dims());
         assert_eq!(tensor.size(), restored.size());
         assert_eq!(tensor.device(), restored.device());
         assert_eq!(tensor.requires_grad(), restored.requires_grad());
@@ -1285,7 +1294,7 @@ mod tests {
         // Test from_binary method
         let restored =
             <Tensor as crate::serialization::Serializable>::from_binary(&binary).unwrap();
-        assert_eq!(tensor.shape().dims, restored.shape().dims);
+        assert_eq!(tensor.shape().dims(), restored.shape().dims());
         assert_eq!(tensor.size(), restored.size());
         assert_eq!(tensor.device(), restored.device());
         assert_eq!(tensor.requires_grad(), restored.requires_grad());
@@ -1324,7 +1333,7 @@ mod tests {
 
         // Test load method with JSON format
         let loaded_tensor = Tensor::load(json_path, Format::Json).unwrap();
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
         assert_eq!(tensor.get(&[0, 0]), loaded_tensor.get(&[0, 0]));
         assert_eq!(tensor.get(&[1, 1]), loaded_tensor.get(&[1, 1]));
@@ -1339,7 +1348,7 @@ mod tests {
         {
             let mut reader = std::fs::File::open(json_path_2).unwrap();
             let loaded_tensor = Tensor::load_from_reader(&mut reader, Format::Json).unwrap();
-            assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+            assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
             assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
             assert_eq!(tensor.get(&[0, 1]), loaded_tensor.get(&[0, 1]));
             assert_eq!(tensor.get(&[1, 0]), loaded_tensor.get(&[1, 0]));
@@ -1379,7 +1388,7 @@ mod tests {
 
         // Test load method with binary format
         let loaded_tensor = Tensor::load(binary_path, Format::Binary).unwrap();
-        assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+        assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
         assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
 
         // Verify all data
@@ -1399,7 +1408,7 @@ mod tests {
         {
             let mut reader = std::fs::File::open(binary_path_2).unwrap();
             let loaded_tensor = Tensor::load_from_reader(&mut reader, Format::Binary).unwrap();
-            assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+            assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
             assert_eq!(tensor.requires_grad(), loaded_tensor.requires_grad());
 
             // Verify all data
@@ -1431,7 +1440,7 @@ mod tests {
         assert!(!json.is_empty());
         let restored_json =
             <Tensor as crate::serialization::Serializable>::from_json(&json).unwrap();
-        assert_eq!(tensor.shape().dims, restored_json.shape().dims);
+        assert_eq!(tensor.shape().dims(), restored_json.shape().dims());
         assert_eq!(tensor.requires_grad(), restored_json.requires_grad());
 
         // Test binary serialization
@@ -1446,7 +1455,7 @@ mod tests {
 
         let restored_binary =
             <Tensor as crate::serialization::Serializable>::from_binary(&binary).unwrap();
-        assert_eq!(tensor.shape().dims, restored_binary.shape().dims);
+        assert_eq!(tensor.shape().dims(), restored_binary.shape().dims());
         assert_eq!(tensor.requires_grad(), restored_binary.requires_grad());
 
         // Verify a sample of data values
@@ -1537,7 +1546,7 @@ mod tests {
             let json = <Tensor as crate::serialization::Serializable>::to_json(&tensor).unwrap();
             let restored_json =
                 <Tensor as crate::serialization::Serializable>::from_json(&json).unwrap();
-            assert_eq!(tensor.shape().dims, restored_json.shape().dims);
+            assert_eq!(tensor.shape().dims(), restored_json.shape().dims());
             assert_eq!(tensor.requires_grad(), restored_json.requires_grad());
 
             // Test binary roundtrip
@@ -1545,7 +1554,7 @@ mod tests {
                 <Tensor as crate::serialization::Serializable>::to_binary(&tensor).unwrap();
             let restored_binary =
                 <Tensor as crate::serialization::Serializable>::from_binary(&binary).unwrap();
-            assert_eq!(tensor.shape().dims, restored_binary.shape().dims);
+            assert_eq!(tensor.shape().dims(), restored_binary.shape().dims());
             assert_eq!(tensor.requires_grad(), restored_binary.requires_grad());
 
             // Verify data for first few elements
@@ -1599,14 +1608,14 @@ mod tests {
         let zero_tensor = Tensor::new(vec![0]);
         let json = <Tensor as crate::serialization::Serializable>::to_json(&zero_tensor).unwrap();
         let restored = <Tensor as crate::serialization::Serializable>::from_json(&json).unwrap();
-        assert_eq!(zero_tensor.shape().dims, restored.shape().dims);
+        assert_eq!(zero_tensor.shape().dims(), restored.shape().dims());
         assert_eq!(zero_tensor.size(), restored.size());
 
         let binary =
             <Tensor as crate::serialization::Serializable>::to_binary(&zero_tensor).unwrap();
         let restored =
             <Tensor as crate::serialization::Serializable>::from_binary(&binary).unwrap();
-        assert_eq!(zero_tensor.shape().dims, restored.shape().dims);
+        assert_eq!(zero_tensor.shape().dims(), restored.shape().dims());
         assert_eq!(zero_tensor.size(), restored.size());
 
         // Test tensor with special values (use reasonable large values instead of f32::MAX/MIN)

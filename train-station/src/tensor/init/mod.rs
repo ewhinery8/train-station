@@ -46,9 +46,9 @@
 //! let mut filled = Tensor::new(vec![2, 3]);
 //! filled.fill(5.0);
 //!
-//! assert_eq!(zeros.shape().dims, vec![2, 3]);
-//! assert_eq!(ones.shape().dims, vec![2, 3]);
-//! assert_eq!(filled.shape().dims, vec![2, 3]);
+//! assert_eq!(zeros.shape().dims(), vec![2, 3]);
+//! assert_eq!(ones.shape().dims(), vec![2, 3]);
+//! assert_eq!(filled.shape().dims(), vec![2, 3]);
 //!
 //! // Verify initialization values
 //! assert_eq!(zeros.get(&[0, 0]), 0.0);
@@ -64,7 +64,7 @@
 //! // Generate random tensors with normal distribution
 //! let normal = Tensor::randn(vec![2, 3], Some(42));
 //!
-//! assert_eq!(normal.shape().dims, vec![2, 3]);
+//! assert_eq!(normal.shape().dims(), vec![2, 3]);
 //!
 //! // Random values should be different from zeros/ones
 //! assert!(normal.get(&[0, 0]) != 0.0);
@@ -79,7 +79,7 @@
 //! let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
 //! let tensor = Tensor::from_slice(&data, vec![2, 3]).unwrap();
 //!
-//! assert_eq!(tensor.shape().dims, vec![2, 3]);
+//! assert_eq!(tensor.shape().dims(), vec![2, 3]);
 //! assert_eq!(tensor.get(&[0, 0]), 1.0);
 //! assert_eq!(tensor.get(&[1, 2]), 6.0);
 //! ```
@@ -98,8 +98,8 @@
 //! result.backward(None);
 //!
 //! // Verify gradients are computed
-//! let grad = zeros.grad_by_value().expect("gradient missing");
-//! assert_eq!(grad.shape().dims, vec![2, 2]);
+//! let grad = zeros.grad_owned().expect("gradient missing");
+//! assert_eq!(grad.shape().dims(), vec![2, 2]);
 //! ```
 //!
 //! # Design Principles

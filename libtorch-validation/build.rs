@@ -225,6 +225,7 @@ fn main() {
             .arg("-ltorch")
             .arg("-ltorch_cpu")
             .arg("-lc10")
+            .arg(format!("-Wl,-rpath,{}", libtorch_lib_path.display()))
             .arg("-o")
             .arg(&lib_file)
             .output()

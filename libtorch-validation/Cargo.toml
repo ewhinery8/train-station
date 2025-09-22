@@ -67,3 +67,11 @@ path = "examples/benches/transpose_performance.rs"
 [[example]]
 name = "view_performance"
 path = "examples/benches/view_performance.rs"
+
+[[example]]
+name = "iterator_performance"
+path = "examples/benches/iterator_performance.rs"
+
+[[example]]
+name = "iter_values_performance"
+path = "examples/benches/iter_values_performance.rs"

@@ -33,7 +33,7 @@
 //! let tensor = Tensor::from_slice(&data, vec![2, 3]).unwrap();
 //!
 //! assert_eq!(tensor.size(), 6);
-//! assert_eq!(tensor.shape().dims, vec![2, 3]);
+//! assert_eq!(tensor.shape().dims(), vec![2, 3]);
 //!
 //! // Verify data was copied correctly
 //! assert_eq!(tensor.get(&[0, 0]), 1.0);
@@ -48,13 +48,13 @@
 //! // 1D tensor
 //! let data_1d = [1.0, 2.0, 3.0];
 //! let tensor_1d = Tensor::from_slice(&data_1d, vec![3]).unwrap();
-//! assert_eq!(tensor_1d.shape().dims, vec![3]);
+//! assert_eq!(tensor_1d.shape().dims(), vec![3]);
 //! assert_eq!(tensor_1d.get(&[1]), 2.0);
 //!
 //! // 3D tensor
 //! let data_3d = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
 //! let tensor_3d = Tensor::from_slice(&data_3d, vec![2, 2, 2]).unwrap();
-//! assert_eq!(tensor_3d.shape().dims, vec![2, 2, 2]);
+//! assert_eq!(tensor_3d.shape().dims(), vec![2, 2, 2]);
 //! assert_eq!(tensor_3d.get(&[0, 0, 0]), 1.0);
 //! assert_eq!(tensor_3d.get(&[1, 1, 1]), 8.0);
 //! ```
@@ -81,7 +81,7 @@
 //! let data: [f32; 0] = [];
 //! let tensor = Tensor::from_slice(&data, vec![0]).unwrap();
 //! assert_eq!(tensor.size(), 0);
-//! assert_eq!(tensor.shape().dims, vec![0]);
+//! assert_eq!(tensor.shape().dims(), vec![0]);
 //! ```
 //!
 //! ## Large Data Sets
@@ -160,13 +160,13 @@ impl Tensor {
     /// // 1D tensor
     /// let data_1d = [1.0, 2.0, 3.0];
     /// let tensor_1d = Tensor::from_slice(&data_1d, vec![3]).unwrap();
-    /// assert_eq!(tensor_1d.shape().dims, vec![3]);
+    /// assert_eq!(tensor_1d.shape().dims(), vec![3]);
     /// assert_eq!(tensor_1d.get(&[1]), 2.0);
     ///
     /// // 3D tensor
     /// let data_3d = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
     /// let tensor_3d = Tensor::from_slice(&data_3d, vec![2, 2, 2]).unwrap();
-    /// assert_eq!(tensor_3d.shape().dims, vec![2, 2, 2]);
+    /// assert_eq!(tensor_3d.shape().dims(), vec![2, 2, 2]);
     /// assert_eq!(tensor_3d.get(&[0, 0, 0]), 1.0);
     /// assert_eq!(tensor_3d.get(&[1, 1, 1]), 8.0);
     /// ```
@@ -193,7 +193,7 @@ impl Tensor {
     /// let data: [f32; 0] = [];
     /// let tensor = Tensor::from_slice(&data, vec![0]).unwrap();
     /// assert_eq!(tensor.size(), 0);
-    /// assert_eq!(tensor.shape().dims, vec![0]);
+    /// assert_eq!(tensor.shape().dims(), vec![0]);
     /// ```
     ///
     /// ## Large Data Sets
@@ -228,15 +228,15 @@ impl Tensor {
     pub fn from_slice(data: &[f32], shape_dims: Vec<usize>) -> Result<Self, String> {
         let shape = crate::tensor::Shape::new(shape_dims);
 
-        if data.len() != shape.size {
+        if data.len() != shape.size() {
             return Err(format!(
                 "Data size {} doesn't match shape size {}",
                 data.len(),
-                shape.size
+                shape.size()
             ));
         }
 
-        let mut tensor = Self::new(shape.dims.clone());
+        let mut tensor = Self::new(shape.dims().to_vec());
 
         // Copy data into tensor using efficient non-overlapping copy
         unsafe {
@@ -258,7 +258,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![2, 3]).unwrap();
 
         assert_eq!(tensor.size(), 6);
-        assert_eq!(tensor.shape().dims, vec![2, 3]);
+        assert_eq!(tensor.shape().dims(), vec![2, 3]);
 
         // Verify data was copied correctly
         assert_eq!(tensor.get(&[0, 0]), 1.0);
@@ -275,7 +275,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![3]).unwrap();
 
         assert_eq!(tensor.size(), 3);
-        assert_eq!(tensor.shape().dims, vec![3]);
+        assert_eq!(tensor.shape().dims(), vec![3]);
 
         assert_eq!(tensor.get(&[0]), 1.0);
         assert_eq!(tensor.get(&[1]), 2.0);
@@ -288,7 +288,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![2, 2, 2]).unwrap();
 
         assert_eq!(tensor.size(), 8);
-        assert_eq!(tensor.shape().dims, vec![2, 2, 2]);
+        assert_eq!(tensor.shape().dims(), vec![2, 2, 2]);
 
         // Verify 3D indexing
         assert_eq!(tensor.get(&[0, 0, 0]), 1.0);
@@ -317,7 +317,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![0]).unwrap();
 
         assert_eq!(tensor.size(), 0);
-        assert_eq!(tensor.shape().dims, vec![0]);
+        assert_eq!(tensor.shape().dims(), vec![0]);
     }
 
     #[test]

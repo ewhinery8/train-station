@@ -3,7 +3,7 @@ use crate::tensor::core::Tensor;
 pub(crate) fn apply_sqrt(saved_output: &Tensor, grad_output: &Tensor) -> Vec<Option<Tensor>> {
     let half = 0.5f32;
     let inv = {
-        let mut out = Tensor::new(saved_output.shape().dims.clone());
+        let mut out = Tensor::new(saved_output.shape().dims().to_vec());
         unsafe {
             let s = saved_output.as_ptr();
             let d = out.as_mut_ptr();

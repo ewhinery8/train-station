@@ -162,7 +162,7 @@ fn demonstrate_broadcasting() {
     let tensor_2d = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     println!(
         "2D tensor: shape {:?}, data: {:?}",
-        tensor_2d.shape().dims,
+        tensor_2d.shape().dims(),
         tensor_2d.data()
     );
 
@@ -170,7 +170,7 @@ fn demonstrate_broadcasting() {
     let tensor_1d = Tensor::from_slice(&[10.0, 20.0], vec![2]).unwrap();
     println!(
         "1D tensor: shape {:?}, data: {:?}",
-        tensor_1d.shape().dims,
+        tensor_1d.shape().dims(),
         tensor_1d.data()
     );
 
@@ -178,7 +178,7 @@ fn demonstrate_broadcasting() {
     let broadcast_sum = &tensor_2d + &tensor_1d;
     println!(
         "Broadcast sum: shape {:?}, data: {:?}",
-        broadcast_sum.shape().dims,
+        broadcast_sum.shape().dims(),
         broadcast_sum.data()
     );
 
@@ -186,7 +186,7 @@ fn demonstrate_broadcasting() {
     let broadcast_mul = &tensor_2d * &tensor_1d;
     println!(
         "Broadcast multiplication: shape {:?}, data: {:?}",
-        broadcast_mul.shape().dims,
+        broadcast_mul.shape().dims(),
         broadcast_mul.data()
     );
 
@@ -194,7 +194,7 @@ fn demonstrate_broadcasting() {
     let broadcast_scalar = &tensor_2d + 100.0;
     println!(
         "Broadcast scalar: shape {:?}, data: {:?}",
-        broadcast_scalar.shape().dims,
+        broadcast_scalar.shape().dims(),
         broadcast_scalar.data()
     );
 }

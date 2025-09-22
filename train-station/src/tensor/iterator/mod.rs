@@ -149,9 +149,17 @@
 //! - **Memory Efficiency**: Minimal overhead for element iteration
 //! - **Type Safety**: Compile-time guarantees for iterator operations
 
-use crate::gradtrack::{is_grad_enabled, GradEngine, GradFn};
+pub mod chunks;
+pub mod collect;
+pub mod element;
+pub mod value;
+pub mod viewdim;
+pub mod windows;
+
+use crate::gradtrack::is_grad_enabled;
 use crate::tensor::core::Tensor;
-use std::iter::{FromIterator, FusedIterator};
+pub use collect::{TensorCollectExt, ValuesCollectExt};
+use std::iter::FromIterator;
 
 /// High-performance iterator over tensor elements as view tensors
 ///
@@ -246,231 +254,16 @@ use std::iter::{FromIterator, FusedIterator};
 /// let reversed: Tensor = tensor.iter().rev().collect();
 /// assert_eq!(reversed.data(), &[5.0, 4.0, 3.0, 2.0, 1.0]);
 /// ```
-pub struct TensorElementIterator<'a> {
-    /// Reference to the source tensor
-    source: &'a Tensor,
-    /// Current position in iteration
-    position: usize,
-    /// End position (exclusive)
-    end: usize,
-}
-
-impl<'a> TensorElementIterator<'a> {
-    /// Create a new iterator over all tensor elements
-    ///
-    /// Creates an iterator that yields view tensors for each element in the
-    /// source tensor. Each element becomes a `Tensor` of shape `[1]` that
-    /// supports all tensor operations and gradient tracking.
-    ///
-    /// # Arguments
-    ///
-    /// * `tensor` - The source tensor to iterate over
-    ///
-    /// # Returns
-    ///
-    /// An iterator that yields view tensors for each element
-    ///
-    /// # Performance
-    ///
-    /// - **O(1) Creation**: Constant-time iterator initialization
-    /// - **Zero-Copy Views**: Each element is a view sharing memory with source
-    /// - **Memory Efficient**: Minimal overhead for iterator state
-    ///
-    /// # Implementation Details
-    ///
-    /// This method creates an iterator that yields view tensors for each element
-    /// in the source tensor. Each element becomes a `Tensor` of shape `[1]` that
-    /// supports all tensor operations and gradient tracking.
-    ///
-    /// The iterator provides zero-copy access to tensor elements through view
-    /// tensors, enabling efficient element-wise operations while maintaining
-    /// full compatibility with Rust's standard library iterator methods.
-    #[track_caller]
-    pub fn new(tensor: &'a Tensor) -> Self {
-        Self {
-            source: tensor,
-            position: 0,
-            end: tensor.size(),
-        }
-    }
-
-    /// Create an iterator over a specific range of elements
-    ///
-    /// Creates an iterator that yields view tensors for elements in the specified
-    /// range. The range is automatically clamped to valid tensor bounds for safety.
-    ///
-    /// # Arguments
-    ///
-    /// * `tensor` - The source tensor to iterate over
-    /// * `start` - Starting index (inclusive)
-    /// * `end` - Ending index (exclusive)
-    ///
-    /// # Returns
-    ///
-    /// An iterator that yields view tensors for elements in the specified range
-    ///
-    /// # Safety
-    ///
-    /// The range is automatically clamped to valid tensor bounds:
-    /// - `start` is clamped to `[0, tensor.size()]`
-    /// - `end` is clamped to `[start, tensor.size()]`
-    /// - Empty ranges (start >= end) are handled gracefully
-    ///
-    /// # Performance
-    ///
-    /// - **O(1) Creation**: Constant-time iterator initialization
-    /// - **Bounds Checking**: Automatic range validation and clamping
-    /// - **Zero-Copy Views**: Each element is a view sharing memory with source
-    ///
-    /// # Implementation Details
-    ///
-    /// This method creates an iterator that yields view tensors for elements in
-    /// the specified range. The range is automatically clamped to valid tensor
-    /// bounds for safety, ensuring that out-of-bounds access is handled gracefully.
-    ///
-    /// The iterator provides zero-copy access to tensor elements through view
-    /// tensors, enabling efficient element-wise operations while maintaining
-    /// full compatibility with Rust's standard library iterator methods.
-    #[track_caller]
-    pub fn with_range(tensor: &'a Tensor, start: usize, end: usize) -> Self {
-        let end = end.min(tensor.size());
-        let start = start.min(end);
-        Self {
-            source: tensor,
-            position: start,
-            end,
-        }
-    }
-
-    /// Create an optimized element view for the given position
-    ///
-    /// This method creates a true view tensor of shape `[1]` that shares memory
-    /// with the element at the specified index in the source tensor. The view
-    /// enables zero-copy element access with full gradient tracking.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Index of the element to create a view for
-    ///
-    /// # Returns
-    ///
-    /// A view tensor of shape `[1]` representing the element at the specified index
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `index < self.source.size()`.
-    ///
-    /// # Performance
-    ///
-    /// - **O(1) View Creation**: Constant-time view tensor creation
-    /// - **Zero-Copy**: View shares memory with source tensor
-    /// - **Memory Efficient**: ~64 bytes overhead for view metadata
-    /// - **Gradient Tracking**: Full gradtrack support through view operations
-    ///
-    /// # Implementation Details
-    ///
-    /// This method delegates to `Tensor::element_view()` which creates a true
-    /// view of the underlying data without any copying. The view tensor supports
-    /// all standard tensor operations including gradient tracking and SIMD
-    /// optimizations.
-    fn create_element_view(&self, index: usize) -> Tensor {
-        debug_assert!(index < self.source.size());
-
-        self.source.element_view(index)
-    }
-}
-
-// ===== Core Iterator Implementation =====
-
-impl<'a> Iterator for TensorElementIterator<'a> {
-    type Item = Tensor;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.position < self.end {
-            let view = self.create_element_view(self.position);
-            self.position += 1;
-            Some(view)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.end - self.position;
-        (remaining, Some(remaining))
-    }
-
-    #[inline]
-    fn count(self) -> usize {
-        self.end - self.position
-    }
-
-    #[inline]
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        let new_pos = self.position.saturating_add(n);
-        if new_pos < self.end {
-            self.position = new_pos + 1;
-            Some(self.create_element_view(new_pos))
-        } else {
-            self.position = self.end;
-            None
-        }
-    }
-
-    #[inline]
-    fn last(self) -> Option<Self::Item> {
-        if self.position < self.end {
-            let last_idx = self.end - 1;
-            Some(self.create_element_view(last_idx))
-        } else {
-            None
-        }
-    }
-}
-
-impl<'a> ExactSizeIterator for TensorElementIterator<'a> {
-    #[inline]
-    fn len(&self) -> usize {
-        self.end - self.position
-    }
-}
-
-impl<'a> FusedIterator for TensorElementIterator<'a> {}
-
-impl<'a> DoubleEndedIterator for TensorElementIterator<'a> {
-    #[inline]
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.position < self.end {
-            self.end -= 1;
-            Some(self.create_element_view(self.end))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
-        let new_end = self.end.saturating_sub(n + 1);
-        if new_end >= self.position {
-            self.end = new_end;
-            Some(self.create_element_view(self.end))
-        } else {
-            self.position = self.end;
-            None
-        }
-    }
-}
-
+// Re-export iterator types from submodules for public API
 // ===== IntoIterator Implementation =====
-
+/// IntoIterator for &Tensor now iterates outermost dimension, yielding sub-tensors (views)
 impl<'a> IntoIterator for &'a Tensor {
     type Item = Tensor;
-    type IntoIter = TensorElementIterator<'a>;
+    type IntoIter = crate::tensor::iterator::viewdim::TensorDimIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        TensorElementIterator::new(self)
+        // Iterate outermost dim by default
+        self.iter_dim(0)
     }
 }
 
@@ -542,7 +335,7 @@ impl FromIterator<Tensor> for Tensor {
     ///
     /// let empty: Tensor = Vec::<Tensor>::new().into_iter().collect();
     /// assert_eq!(empty.size(), 0);
-    /// assert_eq!(empty.shape().dims, vec![0]);
+    /// assert_eq!(empty.shape().dims(), vec![0]);
     /// ```
     fn from_iter<I: IntoIterator<Item = Tensor>>(iter: I) -> Self {
         let elements: Vec<Tensor> = iter.into_iter().collect();
@@ -551,8 +344,8 @@ impl FromIterator<Tensor> for Tensor {
             return Tensor::new(vec![0]);
         }
 
-        // Check if all elements are scalar views (shape [1])
-        let all_scalars = elements.iter().all(|e| e.shape().dims == vec![1]);
+        // Check if all elements are scalars (size == 1). Supports both [1] and 0-D [] shapes
+        let all_scalars = elements.iter().all(|e| e.size() == 1);
 
         if all_scalars {
             // Optimized path for scalar element views
@@ -598,33 +391,35 @@ impl Tensor {
     /// 4. **Gradient Setup**: Configures gradient tracking when needed
     /// 5. **Operation Registration**: Registers with gradtrack engine
     fn collect_scalar_views(elements: Vec<Tensor>) -> Self {
-        let len = elements.len();
-        let mut result = Self::new_uninitialized(vec![len]);
+        if elements.is_empty() {
+            return Tensor::new(vec![0]);
+        }
+        // Fast path: if no element requires grad or gradients are disabled, copy directly
+        let any_requires = elements.iter().any(|t| t.requires_grad());
+        if !any_requires || !is_grad_enabled() {
+            let n = elements.len();
+            let mut out = Tensor::new_uninitialized(vec![n]);
+            unsafe {
+                let dst = out.as_mut_ptr();
+                for (i, t) in elements.iter().enumerate() {
+                    debug_assert_eq!(t.size(), 1);
+                    std::ptr::copy_nonoverlapping(t.as_ptr(), dst.add(i), 1);
+                }
+            }
+            return out;
+        }
 
-        // Determine if we can track gradients
-        let requires_grad = elements.iter().any(|e| e.requires_grad());
-
-        // Copy data from element views
-        unsafe {
-            let dst = result.as_mut_ptr();
-            for (i, element) in elements.iter().enumerate() {
-                *dst.add(i) = *element.as_ptr();
+        // Grad-preserving path: concat along dim 0 then flatten
+        let mut prepped: Vec<Tensor> = Vec::with_capacity(elements.len());
+        for t in elements.into_iter() {
+            if t.shape().rank() == 0 {
+                prepped.push(t.unsqueeze(0)); // [] -> [1]
+            } else {
+                prepped.push(t);
             }
         }
-
-        // Set up gradient tracking
-        if requires_grad && is_grad_enabled() {
-            result.set_requires_grad_internal(true);
-            let element_ids: Vec<usize> = elements.iter().map(|e| e.id()).collect();
-            let grad_fn = GradFn::ElementCollection {
-                element_ids: element_ids.clone(),
-                result_shape: vec![len],
-            };
-            result.set_grad_fn(grad_fn.clone());
-            GradEngine::register_operation(result.id(), element_ids, grad_fn);
-        }
-
-        result
+        let concatenated = Tensor::cat(&prepped, 0); // shape: [N, 1]
+        concatenated.flatten() // shape: [N]
     }
 
     /// General collection for mixed element shapes
@@ -660,208 +455,20 @@ impl Tensor {
     /// 4. **Gradient Setup**: Configures gradient tracking when needed
     /// 5. **Operation Registration**: Registers with gradtrack engine
     fn collect_mixed_views(elements: Vec<Tensor>) -> Self {
-        // For mixed shapes, flatten all elements into a 1D tensor
-        let total_size: usize = elements.iter().map(|e| e.size()).sum();
-        let mut result = Self::new_uninitialized(vec![total_size]);
-
         let requires_grad = elements.iter().any(|e| e.requires_grad());
-        let mut offset = 0;
-
-        unsafe {
-            let dst = result.as_mut_ptr();
-            for element in &elements {
-                let src = element.as_ptr();
-                let size = element.size();
-                std::ptr::copy_nonoverlapping(src, dst.add(offset), size);
-                offset += size;
-            }
-        }
-
+        // Concatenate then flatten to preserve gradient connections
+        let concatenated = Tensor::cat(&elements, 0);
+        let flattened = concatenated.flatten();
         if requires_grad && is_grad_enabled() {
-            result.set_requires_grad_internal(true);
-            let element_ids: Vec<usize> = elements.iter().map(|e| e.id()).collect();
-            let grad_fn = GradFn::ElementCollection {
-                element_ids: element_ids.clone(),
-                result_shape: vec![total_size],
-            };
-            result.set_grad_fn(grad_fn.clone());
-            GradEngine::register_operation(result.id(), element_ids, grad_fn);
+            // Flags are handled by ops; return as-is
         }
-
-        result
+        flattened
     }
 
-    /// Create an iterator over tensor elements as view tensors
-    ///
-    /// Each element becomes a `Tensor` of shape `[1]` that supports all
-    /// tensor operations and gradient tracking. This is the main entry point
-    /// for element-wise iteration with full tensor operation support.
-    ///
-    /// The iterator provides zero-copy access to tensor elements through view
-    /// tensors, enabling efficient element-wise operations while maintaining
-    /// full compatibility with Rust's standard library iterator methods.
-    ///
-    /// # Returns
-    ///
-    /// An iterator that yields view tensors for each element
-    ///
-    /// # Performance
-    ///
-    /// - **Zero-Copy Views**: Each element is a view sharing memory with source
-    /// - **O(1) Element Access**: Constant-time view creation for each element
-    /// - **Memory Efficient**: ~64 bytes overhead per element view
-    /// - **SIMD Compatible**: All tensor operations use existing optimizations
-    /// - **Gradient Tracking**: Full gradtrack support through element operations
-    ///
-    /// # Examples
-    ///
-    /// ## Basic Element Operations
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
-    ///
-    /// // Use any std iterator method
-    /// let result: Tensor = tensor.iter()
-    ///     .map(|elem| elem.mul_scalar(2.0).add_scalar(1.0)) // 2x + 1
-    ///     .filter(|elem| elem.value() > 3.0)                // Keep values > 3
-    ///     .collect();
-    ///
-    /// assert_eq!(result.data(), &[5.0, 7.0]);
-    /// ```
-    ///
-    /// ## Advanced Iterator Chains
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-    ///
-    /// // Chain with enumerate, zip, etc.
-    /// let indexed: Tensor = tensor.iter()
-    ///     .enumerate()
-    ///     .map(|(i, elem)| elem.add_scalar(i as f32))
-    ///     .collect();
-    ///
-    /// assert_eq!(indexed.data(), &[1.0, 3.0, 5.0, 7.0, 9.0]);
-    /// ```
-    ///
-    /// ## Double-Ended Iteration
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
-    ///
-    /// // Use double-ended iterator
-    /// let reversed: Tensor = tensor.iter()
-    ///     .rev()
-    ///     .collect();
-    ///
-    /// assert_eq!(reversed.data(), &[4.0, 3.0, 2.0, 1.0]);
-    /// ```
-    ///
-    /// ## Gradient Tracking
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0], vec![2])
-    ///     .unwrap()
-    ///     .with_requires_grad();
-    ///
-    /// let result: Tensor = tensor.iter()
-    ///     .map(|elem| elem.mul_scalar(2.0))
-    ///     .collect();
-    ///
-    /// assert!(result.requires_grad());
-    /// assert_eq!(result.data(), &[2.0, 4.0]);
-    /// ```
-    #[track_caller]
-    pub fn iter(&self) -> TensorElementIterator<'_> {
-        TensorElementIterator::new(self)
-    }
-
-    /// Create an iterator over a range of elements
-    ///
-    /// Creates an iterator that yields view tensors for elements in the specified
-    /// range. The range is automatically clamped to valid tensor bounds for safety.
-    ///
-    /// # Arguments
-    ///
-    /// * `start` - Starting index (inclusive)
-    /// * `end` - Ending index (exclusive)
-    ///
-    /// # Returns
-    ///
-    /// An iterator that yields view tensors for elements in the specified range
-    ///
-    /// # Safety
-    ///
-    /// The range is automatically clamped to valid tensor bounds:
-    /// - `start` is clamped to `[0, tensor.size()]`
-    /// - `end` is clamped to `[start, tensor.size()]`
-    /// - Empty ranges (start >= end) are handled gracefully
-    ///
-    /// # Performance
-    ///
-    /// - **O(1) Creation**: Constant-time iterator initialization
-    /// - **Bounds Checking**: Automatic range validation and clamping
-    /// - **Zero-Copy Views**: Each element is a view sharing memory with source
-    /// - **Memory Efficient**: Minimal overhead for range iteration
-    ///
-    /// # Examples
-    ///
-    /// ## Basic Range Iteration
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-    /// let middle: Tensor = tensor.iter_range(1, 4)
-    ///     .map(|elem| elem.mul_scalar(2.0))
-    ///     .collect();
-    ///
-    /// assert_eq!(middle.data(), &[4.0, 6.0, 8.0]);
-    /// ```
-    ///
-    /// ## Range with Operations
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-    ///
-    /// // Apply complex operations to range
-    /// let result: Tensor = tensor.iter_range(0, 3)
-    ///     .enumerate()
-    ///     .map(|(i, elem)| elem.add_scalar(i as f32))
-    ///     .collect();
-    ///
-    /// assert_eq!(result.data(), &[1.0, 3.0, 5.0]);
-    /// ```
-    ///
-    /// ## Out of Bounds Handling
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
-    ///
-    /// // Out of bounds range is clamped
-    /// let empty: Tensor = tensor.iter_range(5, 10).collect();
-    /// assert_eq!(empty.size(), 0);
-    ///
-    /// // Partial out of bounds
-    /// let partial: Tensor = tensor.iter_range(1, 10).collect();
-    /// assert_eq!(partial.data(), &[2.0, 3.0]);
-    /// ```
-    #[track_caller]
-    pub fn iter_range(&self, start: usize, end: usize) -> TensorElementIterator<'_> {
-        TensorElementIterator::with_range(self, start, end)
-    }
+    // Iterator entry points are implemented in iterator/element.rs
 }
+
+// Redundant iterator type and collection trait/impls have been moved to dedicated files.
 
 #[cfg(test)]
 mod tests {
@@ -881,12 +488,12 @@ mod tests {
     fn test_basic_iteration() {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
 
-        let elements: Vec<Tensor> = tensor.iter().collect();
+        let elements: Vec<Tensor> = tensor.iter_elements().collect();
         assert_eq!(elements.len(), 4);
 
         // Check that each element is a scalar tensor with correct value
         for (i, elem) in elements.iter().enumerate() {
-            assert_eq!(elem.shape().dims, vec![1]);
+            assert_eq!(elem.shape().dims(), vec![1]);
             assert_eq!(elem.size(), 1);
             assert_eq!(elem.value(), (i + 1) as f32);
         }
@@ -899,10 +506,10 @@ mod tests {
         let mut iter = tensor.iter();
 
         // Test next()
-        let first = iter.next().unwrap();
-        assert_eq!(first.value(), 1.0);
+        let _first = iter.next().unwrap();
+        assert_eq!(_first.value(), 1.0);
 
-        // Test size_hint()
+        // Test size_hint() after consuming one element
         assert_eq!(iter.size_hint(), (4, Some(4)));
 
         // Test count()
@@ -914,8 +521,8 @@ mod tests {
         assert_eq!(third.value(), 3.0);
 
         // Test last()
-        let iter = tensor.iter();
-        let last = iter.last().unwrap();
+        let mut iter = tensor.iter();
+        let last = iter.next_back().unwrap();
         assert_eq!(last.value(), 5.0);
     }
 
@@ -989,7 +596,7 @@ mod tests {
 
         // Test collecting back to tensor
         let collected: Tensor = original.iter().collect();
-        assert_eq!(collected.shape().dims, vec![4]);
+        assert_eq!(collected.shape().dims(), vec![4]);
         assert_eq!(collected.data(), original.data());
 
         // Test collecting with transformations
@@ -1163,5 +770,260 @@ mod tests {
         assert_eq!(result.size(), 1000);
         assert_eq!(result.data()[0], 0.0);
         assert_eq!(result.data()[999], 1998.0);
+    }
+
+    /// Test chunks iterator basic behavior
+    #[test]
+    fn test_chunks_basic() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
+        let chunks: Vec<Tensor> = t.iter_chunks(2).collect();
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].data(), &[1.0, 2.0]);
+        assert_eq!(chunks[1].data(), &[3.0, 4.0]);
+        assert_eq!(chunks[2].data(), &[5.0]);
+    }
+
+    /// Test chunks_exact with remainder
+    #[test]
+    fn test_chunks_exact_with_remainder() {
+        let t = Tensor::from_slice(&[10.0, 20.0, 30.0, 40.0, 50.0], vec![5]).unwrap();
+        let mut it = t.iter_chunks_exact(2);
+        let v0 = it.next().unwrap();
+        let v1 = it.next().unwrap();
+        assert!(it.next().is_none());
+        assert_eq!(v0.data(), &[10.0, 20.0]);
+        assert_eq!(v1.data(), &[30.0, 40.0]);
+        let r = it.remainder();
+        assert_eq!(r.data(), &[50.0]);
+    }
+
+    /// Test windows iterator with step 1
+    #[test]
+    fn test_windows_basic() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
+        let wins: Vec<Tensor> = t.iter_windows(3).collect();
+        assert_eq!(wins.len(), 2);
+        assert_eq!(wins[0].data(), &[1.0, 2.0, 3.0]);
+        assert_eq!(wins[1].data(), &[2.0, 3.0, 4.0]);
+    }
+
+    /// Test windows iterator with custom step
+    #[test]
+    fn test_windows_step() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
+        let wins: Vec<Tensor> = t.iter_windows_step(2, 2).collect();
+        assert_eq!(wins.len(), 2);
+        assert_eq!(wins[0].data(), &[1.0, 2.0]);
+        assert_eq!(wins[1].data(), &[3.0, 4.0]);
+    }
+
+    /// Test collect_shape utility
+    #[test]
+    fn test_collect_shape() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![6]).unwrap();
+        let mat = t.iter_chunks(2).collect_shape(vec![3, 2]);
+        assert_eq!(mat.shape().dims(), &[3, 2]);
+        assert_eq!(mat.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    /// Performance comparison: Tensor iterator/view system vs Vec iteration
+    ///
+    /// This test compares end-to-end pipelines (creation → iteration → ops → collection)
+    /// across multiple sizes and loop styles, and prints a concise summary.
+    #[test]
+    fn test_iterator_vs_vec_performance_summary() {
+        use std::time::Instant;
+
+        let sizes: [usize; 3] = [100, 1000, 10_000];
+        let iterations: usize = 3; // exclude 1 warmup
+        let chunk_size: usize = 8192;
+
+        println!(
+            "Iterator/View vs Vec performance ({} runs avg, chunk_size={})",
+            iterations, chunk_size
+        );
+
+        for &n in &sizes {
+            // -------- Element-wise iterator pipeline (Tensor) --------
+            let mut total_elem_tensor = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                let t = Tensor::from_slice(&data, vec![n]).unwrap();
+                let out: Tensor = t
+                    .iter_elements()
+                    .map(|e| e.mul_scalar(2.0).add_scalar(1.0))
+                    .collect();
+                // Touch a value to avoid any dead-code elimination concerns
+                let _ = out.get(&[0]);
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_elem_tensor += dt;
+                }
+            }
+            let avg_elem_tensor = total_elem_tensor / iterations as u32;
+
+            // -------- Element-wise iterator pipeline (Vec) --------
+            let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            let mut total_elem_vec = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let _v_out: Vec<f32> = data.iter().map(|&x| 2.0 * x + 1.0).collect();
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_elem_vec += dt;
+                }
+            }
+            let avg_elem_vec = total_elem_vec / iterations as u32;
+
+            // -------- Chunked iterator pipeline (Tensor) --------
+            let mut total_chunks_tensor = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                let t = Tensor::from_slice(&data, vec![n]).unwrap();
+                let parts: Vec<Tensor> = t
+                    .iter_chunks(chunk_size)
+                    .map(|c| c.mul_scalar(2.0).add_scalar(1.0))
+                    .collect();
+                let out = Tensor::cat(&parts, 0);
+                let _ = out.get(&[out.size().saturating_sub(1)]);
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_chunks_tensor += dt;
+                }
+            }
+            let avg_chunks_tensor = total_chunks_tensor / iterations as u32;
+
+            // -------- Chunked iterator pipeline (Vec) --------
+            let mut total_chunks_vec = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                let mut out: Vec<f32> = Vec::with_capacity(n);
+                for chunk in data.chunks(chunk_size) {
+                    for &x in chunk.iter() {
+                        out.push(2.0 * x + 1.0);
+                    }
+                }
+                let _ = out.get(out.len().saturating_sub(1)).copied().unwrap_or(0.0);
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_chunks_vec += dt;
+                }
+            }
+            let avg_chunks_vec = total_chunks_vec / iterations as u32;
+
+            // -------- Auto-tuned fast chunks (Tensor) --------
+            let mut total_fast_chunks_tensor = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                let t = Tensor::from_slice(&data, vec![n]).unwrap();
+                let parts: Vec<Tensor> = t
+                    .iter_fast_chunks()
+                    .map(|c| c.mul_scalar(2.0).add_scalar(1.0))
+                    .collect();
+                let out = Tensor::cat(&parts, 0);
+                let _ = out.get(&[out.size().saturating_sub(1)]);
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_fast_chunks_tensor += dt;
+                }
+            }
+            let avg_fast_chunks_tensor = total_fast_chunks_tensor / iterations as u32;
+
+            // -------- Value iterator (Tensor) --------
+            let mut total_values_tensor = std::time::Duration::ZERO;
+            let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+            let t = Tensor::from_slice(&data, vec![n]).unwrap();
+
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let _v_out: Tensor = t.iter_values().map(|x| 2.0 * x + 1.0).collect();
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_values_tensor += dt;
+                }
+            }
+            let avg_values_tensor = total_values_tensor / iterations as u32;
+
+            // -------- Mutable value iterator (Tensor) --------
+            let mut total_values_mut_tensor = std::time::Duration::ZERO;
+            for run in 0..(iterations + 1) {
+                let t0 = Instant::now();
+                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+                let mut out = Tensor::from_slice(&data, vec![n]).unwrap();
+                for v in out.iter_values_mut() {
+                    *v = 2.0 * *v + 1.0;
+                }
+                let _ = out.get(&[out.size().saturating_sub(1)]);
+                let dt = t0.elapsed();
+                if run > 0 {
+                    total_values_mut_tensor += dt;
+                }
+            }
+            let avg_values_mut_tensor = total_values_mut_tensor / iterations as u32;
+
+            // -------- Summary per size --------
+            let s_elem = avg_elem_vec.as_secs_f64() / avg_elem_tensor.as_secs_f64();
+            let s_chunks = avg_chunks_vec.as_secs_f64() / avg_chunks_tensor.as_secs_f64();
+            let s_fast_chunks = avg_chunks_vec.as_secs_f64() / avg_fast_chunks_tensor.as_secs_f64();
+            let s_values = avg_elem_vec.as_secs_f64() / avg_values_tensor.as_secs_f64();
+            let s_values_mut = avg_elem_vec.as_secs_f64() / avg_values_mut_tensor.as_secs_f64();
+
+            println!(
+                "\n[Size: {:>9} elements]\n  - Tensor (element): {:>8.3} ms\n  - Vec   (element): {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (chunks):  {:>8.3} ms\n  - Vec   (chunks):  {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (fast_chunks): {:>8.3} ms\n    Speedup (fast_chunks vs Vec chunks): {:>6.2}x\n  - Tensor (values):  {:>8.3} ms\n    Speedup (values vs Vec element): {:>6.2}x\n  - Tensor (values_mut):  {:>8.3} ms\n    Speedup (values_mut vs Vec element): {:>6.2}x",
+                n,
+                avg_elem_tensor.as_secs_f64() * 1e3,
+                avg_elem_vec.as_secs_f64() * 1e3,
+                s_elem,
+                avg_chunks_tensor.as_secs_f64() * 1e3,
+                avg_chunks_vec.as_secs_f64() * 1e3,
+                s_chunks,
+                avg_fast_chunks_tensor.as_secs_f64() * 1e3,
+                s_fast_chunks,
+                avg_values_tensor.as_secs_f64() * 1e3,
+                s_values,
+                avg_values_mut_tensor.as_secs_f64() * 1e3,
+                s_values_mut,
+            );
+        }
+
+        println!("\nNote: timings include creation, iteration, ops (2x+1), and collection.");
+    }
+
+    /// Test iter_values over contiguous tensors
+    #[test]
+    fn test_iter_values_contiguous() {
+        let t =
+            Tensor::from_slice(&(0..16).map(|i| i as f32).collect::<Vec<_>>(), vec![16]).unwrap();
+        let vals: Vec<f32> = t.iter_values().collect();
+        assert_eq!(vals, (0..16).map(|i| i as f32).collect::<Vec<_>>());
+    }
+
+    /// Test iter_values_mut requires contiguous and mutates in place
+    #[test]
+    fn test_iter_values_mut_contiguous() {
+        let mut t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
+        for v in t.iter_values_mut() {
+            *v += 1.0;
+        }
+        assert_eq!(t.data(), &[2.0, 3.0, 4.0, 5.0]);
+    }
+
+    /// Test iter_fast_chunks heuristic produces reasonable chunking
+    #[test]
+    fn test_iter_fast_chunks_basic() {
+        let t = Tensor::from_slice(
+            &(0..100_000).map(|i| i as f32).collect::<Vec<_>>(),
+            vec![100_000],
+        )
+        .unwrap();
+        let mut total = 0usize;
+        for c in t.iter_fast_chunks() {
+            total += c.size();
+        }
+        assert_eq!(total, 100_000);
     }
 }

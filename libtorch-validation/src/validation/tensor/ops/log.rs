@@ -46,7 +46,7 @@ impl TensorValidator {
         }
         let mut y = x.log();
         y.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our log produced no gradient".to_string()),
         };

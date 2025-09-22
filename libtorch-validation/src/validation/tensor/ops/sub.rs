@@ -115,7 +115,7 @@ impl TensorValidator {
         let mut our_result = our_tensor.sub_scalar(scalar);
         our_result.backward(None);
 
-        let our_grad = match our_tensor.grad_by_value() {
+        let our_grad = match our_tensor.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor has no gradient".to_string()),
         };
@@ -170,12 +170,12 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.sub_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
 
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -342,11 +342,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.sub_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -822,57 +822,65 @@ mod tests {
         }
     }
 
+    // Additional forward/grad broadcasting coverage
     #[test]
-    fn test_sub_gradient_edge_cases() {
+    fn test_sub_broadcast_additional_forward() {
         let validator = TensorValidator::new(1e-6, 1e-8);
 
-        // Edge cases for gradient computation
-        let edge_cases = vec![
-            // Zero cases
-            (vec![1], 0.0),
-            (vec![5], 0.0),
-            // Small values
-            (vec![3], f32::MIN_POSITIVE),
-            (vec![2, 3], 1e-10),
-            // Large values
-            (vec![4, 5], 1000.0),
-            // Negative values
-            (vec![3, 4], -100.0),
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
         ];
 
-        for (shape, scalar) in edge_cases {
-            let result = validator.test_sub_scalar_gradients(&shape, scalar);
+        for (a, b) in cases {
+            let res = validator.test_sub_tensor_broadcasting(&a, &b);
             assert!(
-                result.passed,
-                "Sub scalar gradient edge case {:?}, {}: {}",
-                shape, scalar, result.details
+                res.passed,
+                "sub forward broadcast {:?}-{:?}: {}",
+                a, b, res.details
             );
         }
     }
 
     #[test]
-    fn test_sub_gradient_shapes_comprehensive() {
+    fn test_sub_broadcast_additional_gradients() {
         let validator = TensorValidator::new(1e-6, 1e-8);
 
-        // Test various tensor shapes for gradient accuracy
-        let shapes = vec![
-            vec![1],
-            vec![2],
-            vec![10],
-            vec![1, 1],
-            vec![2, 3],
-            vec![5, 4],
-            vec![1, 5, 1],
-            vec![3, 4, 5],
-            vec![2, 3, 4, 5],
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
         ];
 
-        for shape in shapes {
-            let result = validator.test_sub_tensor_gradients(&shape);
+        for (a, b) in cases {
+            let res = validator.test_sub_tensor_broadcasting_gradients(&a, &b);
             assert!(
-                result.passed,
-                "Sub tensor gradient shape {:?}: {}",
-                shape, result.details
+                res.passed,
+                "sub grad broadcast {:?}-{:?}: {}",
+                a, b, res.details
             );
         }
     }

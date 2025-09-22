@@ -61,7 +61,7 @@ mod tests {
         let grad_input = grads[0].as_ref().unwrap();
 
         // Check that gradient is placed correctly
-        assert_eq!(grad_input.shape().dims, vec![6]);
+        assert_eq!(grad_input.shape().dims(), vec![6]);
         assert_eq!(grad_input.get(&[0]), 0.0); // Before slice
         assert_eq!(grad_input.get(&[1]), 1.0); // Slice start
         assert_eq!(grad_input.get(&[2]), 1.0); // Slice middle
@@ -89,7 +89,7 @@ mod tests {
         let grad_input = grads[0].as_ref().unwrap();
 
         // Check that gradient is placed at strided positions
-        assert_eq!(grad_input.shape().dims, vec![8]);
+        assert_eq!(grad_input.shape().dims(), vec![8]);
         assert_eq!(grad_input.get(&[0]), 0.0); // Not in slice
         assert_eq!(grad_input.get(&[1]), 2.0); // start + 0*step = 1
         assert_eq!(grad_input.get(&[2]), 0.0); // Not in slice

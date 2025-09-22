@@ -106,7 +106,7 @@
 //!
 //! // Deserialize tensor from binary format
 //! let loaded_tensor = Tensor::from_binary(&binary_data).unwrap();
-//! assert_eq!(tensor.shape().dims, loaded_tensor.shape().dims);
+//! assert_eq!(tensor.shape().dims(), loaded_tensor.shape().dims());
 //! ```
 //!
 //! # Safety and Validation

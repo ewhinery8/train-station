@@ -12,6 +12,6 @@ pub(crate) fn apply_permute(
     }
 
     let grad_input = grad_output.permute(inv);
-    assert_eq!(grad_input.shape().dims, input_shape.to_vec());
+    assert_eq!(grad_input.shape().dims(), input_shape.to_vec());
     vec![Some(grad_input)]
 }

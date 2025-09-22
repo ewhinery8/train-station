@@ -105,10 +105,6 @@ pub mod utils;
 /// * `MaskedFill` - Masked fill operation with boolean mask
 /// * `Select` - Element selection along specified dimension
 ///
-/// ## View Operations
-/// * `ElementView` - Single element view for gradient accumulation
-/// * `ElementCollection` - Collection of element views back into tensor
-///
 /// ## Special Cases
 /// * `None` - Leaf tensor with no gradient function (input parameter)
 ///
@@ -248,14 +244,10 @@ pub enum GradFn {
         /// Original input shape to restore on backward
         input_shape: Vec<usize>,
     },
-    /// Slice view gradient function
-    SliceView {
-        /// Starting index of the slice
-        start: usize,
-        /// Step size of the slice (1 for contiguous, >1 for strided)
-        step: usize,
-        /// Length of the slice
-        length: usize,
+    /// Generic view gradient function using a mapping description
+    View {
+        /// Mapping from view positions to base tensor positions
+        mapping: ViewMapping,
         /// Original input shape to restore on backward
         input_shape: Vec<usize>,
     },
@@ -429,24 +421,19 @@ pub enum GradFn {
         /// Original input shape
         input_shape: Vec<usize>,
     },
-    /// Element view gradient function (single element from tensor)
-    ElementView {
-        /// Source tensor ID
-        source_id: usize,
-        /// Index of the element in the source tensor
-        element_index: usize,
-        /// Shape of the source tensor for gradient accumulation
-        source_shape: Vec<usize>,
-    },
-    /// Collection of element views back into tensor
-    ElementCollection {
-        /// IDs of the element view tensors
-        element_ids: Vec<usize>,
-        /// Shape of the resulting collected tensor
-        result_shape: Vec<usize>,
-    },
     /// Leaf tensor (no gradient function)
     None,
+}
+
+/// Mapping specification for generic view gradient scattering
+#[derive(Debug, Clone)]
+pub enum ViewMapping {
+    /// Linear range mapping: base[start + i*step] for i in [0, length)
+    LinearRange {
+        start: usize,
+        step: usize,
+        length: usize,
+    },
 }
 
 impl GradFn {
@@ -578,18 +565,22 @@ impl GradFn {
                 dim1,
                 input_shape,
             } => transforms::transpose::apply_transpose(*dim0, *dim1, input_shape, grad_output),
-            GradFn::SliceView {
-                start,
-                step,
-                length,
+            GradFn::View {
+                mapping,
                 input_shape,
-            } => transforms::slice_view::apply_slice_view(
-                *start,
-                *step,
-                *length,
-                input_shape,
-                grad_output,
-            ),
+            } => match mapping {
+                ViewMapping::LinearRange {
+                    start,
+                    step,
+                    length,
+                } => transforms::slice_view::apply_slice_view(
+                    *start,
+                    *step,
+                    *length,
+                    input_shape,
+                    grad_output,
+                ),
+            },
             GradFn::ReduceSum { input_shape } => {
                 reductions::sum::apply_reduce_sum(input_shape, grad_output)
             }
@@ -750,41 +741,7 @@ impl GradFn {
                 index,
                 input_shape,
             } => indexing::select::apply_select(*dim, *index, input_shape, grad_output),
-            GradFn::ElementView {
-                source_id: _,
-                element_index: _,
-                source_shape: _,
-            } => {
-                // Element view: Currently working with scalar gradient accumulation
-                // The gradient engine will accumulate this into the source tensor
-                // For now, return the gradient as-is since basic flow is working
-                if grad_output.size() == 1 {
-                    vec![Some(grad_output.clone())]
-                } else {
-                    // If grad_output is not scalar, sum it to create a scalar gradient
-                    let scalar_grad = grad_output.sum();
-                    vec![Some(scalar_grad)]
-                }
-            }
-            GradFn::ElementCollection {
-                element_ids,
-                result_shape: _,
-            } => {
-                // Distribute gradients back to element views
-                // Each element gets a slice of the gradient output
-                let mut gradients = Vec::new();
-                for (i, _id) in element_ids.iter().enumerate() {
-                    if i < grad_output.size() {
-                        // Create gradient for this element
-                        let grad_value = grad_output.data()[i];
-                        let elem_grad = Tensor::from_slice(&[grad_value], vec![1]).unwrap();
-                        gradients.push(Some(elem_grad));
-                    } else {
-                        gradients.push(None);
-                    }
-                }
-                gradients
-            }
+
             GradFn::None => Vec::new(),
         }
     }
@@ -829,7 +786,7 @@ impl GradFn {
             GradFn::Sqrt { .. } => "Sqrt",
             GradFn::Permute { .. } => "Permute",
             GradFn::Transpose { .. } => "Transpose",
-            GradFn::SliceView { .. } => "SliceView",
+            GradFn::View { .. } => "View",
             GradFn::ReduceSum { .. } => "ReduceSum",
             GradFn::ReduceMean { .. } => "ReduceMean",
             GradFn::ReduceMin { .. } => "ReduceMin",
@@ -855,8 +812,7 @@ impl GradFn {
             GradFn::Gather { .. } => "Gather",
             GradFn::MaskedFill { .. } => "MaskedFill",
             GradFn::Select { .. } => "Select",
-            GradFn::ElementView { .. } => "ElementView",
-            GradFn::ElementCollection { .. } => "ElementCollection",
+
             GradFn::None => "Leaf",
         }
     }

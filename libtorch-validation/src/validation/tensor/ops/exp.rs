@@ -51,7 +51,7 @@ impl TensorValidator {
         }
         let mut y = x.exp();
         y.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our exp produced no gradient".to_string()),
         };
@@ -101,7 +101,7 @@ impl TensorValidator {
         let expx = x.exp();
         let mut z = expx.mul_tensor(&x).add_tensor(&expx);
         z.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our chain produced no gradient".to_string()),
         };

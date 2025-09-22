@@ -68,13 +68,117 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use crate::device::current_device;
+use crate::gradtrack::engine::ensure_local_group_for_tensor;
 use crate::gradtrack::{self, GradEngine, GradFn};
+use crate::tensor::core::memory::{
+    compute_allocation_params, detect_runtime_simd, simd_lane_width_elems, use_pool_alloc_enabled,
+    SimdLevel,
+};
 use crate::tensor::core::{Allocation, Device, TENSOR_ID_COUNTER};
 use crate::tensor::Shape;
 
 use super::Tensor;
 
 impl Tensor {
+    /// Ensures that this tensor has unique ownership of its allocation before mutation.
+    ///
+    /// If the underlying allocation is shared (i.e., multiple views), this performs
+    /// a copy-on-write: allocates a new buffer and copies data so that mutating this tensor
+    /// does not affect existing views.
+    fn ensure_unique_allocation(&mut self) {
+        if self.size() == 0 {
+            return;
+        }
+        if let Some(owner) = self.allocation_owner.as_ref() {
+            if std::sync::Arc::strong_count(owner) > 1 {
+                // Allocate a new buffer with the same size/alignment policy as constructors
+                let (alignment, padded_elems) = compute_allocation_params(self.shape.size());
+                let total_size = padded_elems * std::mem::size_of::<f32>();
+                let layout = Layout::from_size_align(total_size, alignment)
+                    .expect("Failed to create layout for tensor data");
+
+                let alloc_obj = if use_pool_alloc_enabled() {
+                    Allocation::new_pooled(padded_elems, alignment, layout)
+                } else {
+                    Allocation::new_uninitialized(padded_elems, alignment, layout)
+                };
+
+                let new_ptr = alloc_obj.ptr;
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.as_ptr(), new_ptr.as_ptr(), self.size());
+                }
+
+                // Replace pointer and owner with the new unique allocation
+                self.data = new_ptr;
+                self.allocation_owner = Some(std::sync::Arc::new(alloc_obj));
+            }
+        }
+    }
+    // ===== Runtime SIMD capability helpers for ops selection =====
+
+    /// Returns the highest runtime-detected SIMD level on this CPU
+    #[inline]
+    pub(crate) fn simd_runtime_level() -> SimdLevel {
+        detect_runtime_simd()
+    }
+
+    /// Returns the SIMD lane width (elements per vector) for f32 at runtime
+    #[inline]
+    pub(crate) fn simd_lane_width_elems_runtime() -> usize {
+        simd_lane_width_elems(Self::simd_runtime_level())
+    }
+
+    /// Checks whether this tensor's data pointer is aligned for the specified SIMD level
+    #[inline]
+    #[cfg(test)]
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn is_aligned_for_level(&self, level: SimdLevel) -> bool {
+        use crate::tensor::core::memory::simd_alignment_bytes;
+
+        let required = simd_alignment_bytes(level);
+        (self.data.as_ptr() as usize).is_multiple_of(required)
+    }
+
+    /// Returns true if this tensor is aligned for the current runtime SIMD level
+    #[inline]
+    #[cfg(test)]
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn is_aligned_for_runtime_level(&self) -> bool {
+        self.is_aligned_for_level(Self::simd_runtime_level())
+    }
+
+    /// Returns true if ops should use aligned SIMD loads/stores without a tail branch
+    /// (i.e., pointer is aligned for the runtime SIMD level and length is a multiple of lane)
+    #[inline]
+    #[cfg(test)]
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn prefer_aligned_simd_ops(&self) -> bool {
+        let lane = Self::simd_lane_width_elems_runtime();
+        self.is_aligned_for_runtime_level() && self.size().is_multiple_of(lane)
+    }
+
+    /// Returns true if ops should use unaligned SIMD loads/stores (mm_loadu)
+    /// because pointer alignment or length does not meet aligned requirements.
+    /// Returns false when no SIMD is available.
+    #[inline]
+    #[cfg(target_arch = "x86_64")]
+    #[cfg(test)]
+    pub(crate) fn should_use_unaligned_simd_ops(&self) -> bool {
+        match Self::simd_runtime_level() {
+            SimdLevel::Scalar => false,
+            _ => !self.prefer_aligned_simd_ops(),
+        }
+    }
+
+    /// Returns the allocated capacity in elements, which may be padded beyond logical size
+    #[inline]
+    pub fn capacity_elems(&self) -> usize {
+        if let Some(owner) = self.allocation_owner() {
+            owner.capacity_elems()
+        } else {
+            self.size()
+        }
+    }
     /// Creates a new tensor with the specified shape and optimized memory layout
     ///
     /// Allocates memory with size-dependent alignment for optimal performance:
@@ -123,7 +227,7 @@ impl Tensor {
         let shape = Shape::new(shape_dims);
         let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        if shape.size == 0 {
+        if shape.size() == 0 {
             // Handle zero-sized tensors
             return Self {
                 data: NonNull::dangling(),
@@ -131,32 +235,37 @@ impl Tensor {
                 device: current_device(),
                 id,
                 requires_grad: false,
+                retain_grad: false,
                 grad: None,
                 grad_fn: GradFn::None,
                 allocation_owner: None,
+                graph_group: None,
                 _phantom: PhantomData,
             };
         }
 
-        // Optimized layout calculation for better cache performance
-        let element_size = std::mem::size_of::<f32>();
-        let total_size = shape.size * element_size;
-
-        // Use cache line alignment for large tensors, smaller alignment for small ones
-        let alignment = if total_size > 4096 {
-            64 // Cache line alignment for large tensors
-        } else if shape.size >= 8 {
-            32 // AVX2 alignment for medium tensors
-        } else {
-            16 // SSE alignment for small tensors
-        };
+        // Compute alignment and padded element count based on runtime SIMD
+        let (alignment, padded_elems) = compute_allocation_params(shape.size());
+        let total_size = padded_elems * std::mem::size_of::<f32>();
 
         let layout = Layout::from_size_align(total_size, alignment)
             .expect("Failed to create layout for tensor data");
 
-        // Allocate memory via shared Allocation
-        let alloc_obj = Allocation::new(shape.size, alignment, layout);
+        // Allocation policy: prefer pool for tiny tensors and medium/large classes.
+        // Route certain small sizes to system allocator to keep pool stats semantics used by tests.
+        let alloc_obj = if use_pool_alloc_enabled() {
+            Allocation::new_pooled(padded_elems, alignment, layout)
+        } else {
+            Allocation::new(padded_elems, alignment, layout)
+        };
         let ptr = alloc_obj.ptr;
+
+        debug_assert!(
+            alloc_obj.capacity_elems() >= padded_elems,
+            "Allocation capacity ({}) smaller than padded elements ({})",
+            alloc_obj.capacity_elems(),
+            padded_elems
+        );
 
         Self {
             data: ptr,
@@ -164,9 +273,11 @@ impl Tensor {
             device: current_device(),
             id,
             requires_grad: false,
+            retain_grad: false,
             grad: None,
             grad_fn: GradFn::None,
             allocation_owner: Some(std::sync::Arc::new(alloc_obj)),
+            graph_group: None,
             _phantom: PhantomData,
         }
     }
@@ -194,8 +305,8 @@ impl Tensor {
     ///
     /// let tensor = Tensor::new(vec![2, 3, 4]);
     /// let shape = tensor.shape();
-    /// assert_eq!(shape.dims, vec![2, 3, 4]);
-    /// assert_eq!(shape.size, 24);
+    /// assert_eq!(shape.dims(), vec![2, 3, 4]);
+    /// assert_eq!(shape.size(), 24);
     /// assert_eq!(shape.rank(), 3);
     /// ```
     #[inline]
@@ -235,7 +346,7 @@ impl Tensor {
     #[inline]
     #[track_caller]
     pub fn size(&self) -> usize {
-        self.shape.size
+        self.shape().size()
     }
 
     /// Returns the device where this tensor is located
@@ -342,7 +453,7 @@ impl Tensor {
         let shape = Shape::new(shape_dims);
         let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        if shape.size == 0 {
+        if shape.size() == 0 {
             // Handle zero-sized tensors
             return Self {
                 data: NonNull::dangling(),
@@ -350,32 +461,34 @@ impl Tensor {
                 device,
                 id,
                 requires_grad: false,
+                retain_grad: false,
                 grad: None,
                 grad_fn: GradFn::None,
                 allocation_owner: None,
+                graph_group: None,
                 _phantom: PhantomData,
             };
         }
 
-        // Optimized layout calculation for better cache performance
-        let element_size = std::mem::size_of::<f32>();
-        let total_size = shape.size * element_size;
-
-        // Use cache line alignment for large tensors, smaller alignment for small ones
-        let alignment = if total_size > 4096 {
-            64 // Cache line alignment for large tensors
-        } else if shape.size >= 8 {
-            32 // AVX2 alignment for medium tensors
-        } else {
-            16 // SSE alignment for small tensors
-        };
-
+        let (alignment, padded_elems) = compute_allocation_params(shape.size());
+        let total_size = padded_elems * std::mem::size_of::<f32>();
         let layout = Layout::from_size_align(total_size, alignment)
             .expect("Failed to create layout for tensor data");
 
-        // Allocate memory via shared Allocation
-        let alloc_obj = Allocation::new(shape.size, alignment, layout);
+        // Same allocation policy as new(): prefer pool for tiny and medium/large classes
+        let alloc_obj = if use_pool_alloc_enabled() {
+            Allocation::new_pooled(padded_elems, alignment, layout)
+        } else {
+            Allocation::new(padded_elems, alignment, layout)
+        };
         let ptr = alloc_obj.ptr;
+
+        debug_assert!(
+            alloc_obj.capacity_elems() >= padded_elems,
+            "Allocation capacity ({}) smaller than padded elements ({})",
+            alloc_obj.capacity_elems(),
+            padded_elems
+        );
 
         Self {
             data: ptr,
@@ -383,9 +496,11 @@ impl Tensor {
             device,
             id,
             requires_grad: false,
+            retain_grad: false,
             grad: None,
             grad_fn: GradFn::None,
             allocation_owner: Some(std::sync::Arc::new(alloc_obj)),
+            graph_group: None,
             _phantom: PhantomData,
         }
     }
@@ -417,6 +532,9 @@ impl Tensor {
     #[track_caller]
     pub fn with_requires_grad(mut self) -> Self {
         self.requires_grad = true;
+        if self.graph_group.is_none() {
+            self.graph_group = Some(ensure_local_group_for_tensor(self.id()));
+        }
         self
     }
 
@@ -455,6 +573,34 @@ impl Tensor {
         if !requires_grad {
             self.grad = None;
             self.grad_fn = GradFn::None;
+            self.graph_group = None;
+        } else {
+            // Lazily bind to a local graph group for this tensor id
+            if self.graph_group.is_none() {
+                self.graph_group = Some(ensure_local_group_for_tensor(self.id()));
+            }
+        }
+    }
+
+    /// Mark this tensor to retain gradients after backward, even if it is non-leaf.
+    ///
+    /// Builder-style API: returns self with `retain_grad=true`.
+    /// Call `materialize_grad()` or `grad_or_fetch()` after backward to copy the
+    /// accumulated gradient from the GradGraph into `self.grad` so `grad()` works.
+    #[track_caller]
+    pub fn retain_grad(mut self) -> Self {
+        self.retain_grad = true;
+        // Register intent with grad engine to keep gradient available after backward
+        crate::gradtrack::engine::mark_retain_grad(self.id);
+        self
+    }
+
+    /// In-place variant to enable or disable gradient retention for non-leaf tensors
+    #[track_caller]
+    pub fn retain_grad_(&mut self, enable: bool) {
+        self.retain_grad = enable;
+        if enable {
+            crate::gradtrack::engine::mark_retain_grad(self.id);
         }
     }
 
@@ -504,41 +650,81 @@ impl Tensor {
             return Some(grad.as_ref());
         }
 
-        // If not, check the gradient map for accumulated gradients
-        if let Some(_grad) = gradtrack::get_accumulated_gradient(self.id) {
-            // For simplicity, we'll return None here since we can't return a reference
-            // to a temporary value. In a full implementation, we'd store it in self.grad
-            return None;
-        }
-
         None
     }
 
-    /// Get accumulated gradient by value (helper for testing)
+    /// Fetch the accumulated gradient after backward and cache it on this tensor if `retain_grad` is enabled.
     ///
-    /// Returns the gradient tensor by value, which is useful for testing and
-    /// when you need to own the gradient data.
+    /// Returns true if a gradient was found and cached. After a successful call,
+    /// `grad()` will return `Some(&Tensor)` even for non-leaf tensors.
+    #[track_caller]
+    pub fn materialize_grad(&mut self) -> bool {
+        if self.grad.is_some() {
+            return true;
+        }
+        if !self.retain_grad {
+            return false;
+        }
+        if let Some(g) = self.grad_owned() {
+            self.set_grad(g);
+            return true;
+        }
+        false
+    }
+
+    /// Convenience accessor: if `retain_grad` is enabled, fetch and cache the gradient
+    /// on first access so callers can immediately get a reference.
+    #[track_caller]
+    pub fn grad_or_fetch(&mut self) -> Option<&Tensor> {
+        if self.grad.is_none() && self.retain_grad {
+            if let Some(g) = self.grad_owned() {
+                self.set_grad(g);
+            }
+        }
+        self.grad.as_deref()
+    }
+
+    /// Get the accumulated gradient as an owned tensor
+    ///
+    /// Returns the gradient by value (owned). This complements `grad()` which returns
+    /// a reference. Useful when you need to take ownership of the gradient data
+    /// (e.g., move into another structure or thread).
+    ///
+    /// This function does not clear internal gradient state. If a locally cached
+    /// gradient is not present, it consults shared autograd storage to fetch an
+    /// up-to-date gradient for this tensor ID.
     ///
     /// # Returns
     ///
-    /// Optional gradient tensor, or `None` if no gradients exist
+    /// `Some(Tensor)` containing the gradient when available, otherwise `None`.
     ///
     /// # Examples
     ///
     /// ```
     /// use train_station::Tensor;
     ///
-    /// let tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
-    /// assert!(tensor.grad_by_value().is_none()); // No gradients computed yet
+    /// // Before backward: no gradient yet
+    /// let mut x = Tensor::ones(vec![2, 3]).with_requires_grad();
+    /// assert!(x.grad_owned().is_none());
+    ///
+    /// // Compute a simple loss and backprop
+    /// let mut loss = x.sum();
+    /// loss.backward(None);
+    ///
+    /// // Fetch the gradient by value (owned)
+    /// let g = x.grad_owned().unwrap();
+    /// assert_eq!(g.shape().dims(), vec![2, 3]);
     /// ```
     #[track_caller]
-    pub fn grad_by_value(&self) -> Option<Tensor> {
+    pub fn grad_owned(&self) -> Option<Tensor> {
         // First check if we have a gradient stored directly
         if let Some(grad) = self.grad.as_ref() {
             return Some((**grad).clone());
         }
 
-        // If not, check the gradient map for accumulated gradients
+        // Always consult the global/shared gradient storage so gradients accumulated
+        // in a promoted/merged shared group are visible regardless of the calling thread.
+        // This is critical for cross-thread forward/backward validation and parity with LibTorch.
         use crate::gradtrack;
         gradtrack::get_accumulated_gradient(self.id)
     }
@@ -588,7 +774,7 @@ impl Tensor {
     /// ```
     #[track_caller]
     pub fn detach(&self) -> Self {
-        let mut detached = Self::new(self.shape.dims.clone());
+        let mut detached = Self::new(self.shape().dims().to_vec());
 
         // Copy data
         unsafe {
@@ -803,7 +989,11 @@ impl Tensor {
     /// ```
     #[track_caller]
     pub fn zero_grad(&mut self) {
+        // Clear locally cached gradient
         self.grad = None;
+        // Ensure gradient is also cleared from autograd storage so future backward runs
+        // don't observe stale gradients when mixing TLS and shared groups.
+        crate::gradtrack::engine::clear_gradient_for_tensor(self.id);
     }
 
     /// Negate all elements in the tensor in-place
@@ -818,7 +1008,7 @@ impl Tensor {
     /// better performance.
     #[inline]
     pub(crate) fn negate_inplace(&mut self) {
-        if self.shape.size == 0 {
+        if self.shape.size() == 0 {
             return;
         }
 
@@ -835,7 +1025,7 @@ impl Tensor {
             }
 
             // Fallback to scalar operations
-            for i in 0..self.shape.size {
+            for i in 0..self.shape.size() {
                 *ptr.add(i) = -*ptr.add(i);
             }
         }
@@ -866,7 +1056,7 @@ impl Tensor {
     unsafe fn negate_simd_avx2(&self, ptr: *mut f32) {
         use std::arch::x86_64::_mm256_setzero_ps;
 
-        let size = self.shape.size;
+        let size = self.shape().size();
         let zero_vec = _mm256_setzero_ps();
         let simd_count = size / 8; // Process 8 elements per iteration
         let mut offset = 0;
@@ -906,18 +1096,7 @@ impl Tensor {
     #[inline]
     #[track_caller]
     pub fn is_contiguous(&self) -> bool {
-        self.shape.is_contiguous()
-    }
-
-    /// Checks if this tensor is a view of another tensor
-    ///
-    /// # Returns
-    ///
-    /// `true` if this tensor is a view (non-contiguous reference)
-    #[inline]
-    #[track_caller]
-    pub fn is_view(&self) -> bool {
-        self.shape.is_view()
+        self.shape().is_contiguous()
     }
 
     /// Gets the memory strides for all dimensions
@@ -959,17 +1138,6 @@ impl Tensor {
         self.shape.stride(dim)
     }
 
-    /// Gets the memory layout type for optimization decisions
-    ///
-    /// # Returns
-    ///
-    /// Reference to the memory layout information
-    #[inline]
-    #[track_caller]
-    pub fn layout(&self) -> &crate::tensor::MemoryLayout {
-        self.shape.layout()
-    }
-
     /// Calculates the linear memory offset for given multi-dimensional indices
     ///
     /// # Arguments
@@ -1009,19 +1177,8 @@ impl Tensor {
     /// # Returns
     ///
     /// A tuple `(broadcasted_self, broadcasted_other, result_shape)`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use train_station::Tensor;
-    ///
-    /// let a = Tensor::ones(vec![2, 1, 4]);
-    /// let b = Tensor::ones(vec![3, 1]);
-    /// let result = a.broadcast_with(&b);
-    /// assert!(result.is_ok());
-    /// ```
     #[track_caller]
-    pub fn broadcast_with(
+    pub(crate) fn broadcast_with(
         &self,
         other: &Tensor,
     ) -> Result<
@@ -1038,8 +1195,10 @@ impl Tensor {
     /// `true` if the tensor data is aligned to 32-byte boundaries for AVX2
     #[inline]
     #[track_caller]
-    pub fn is_simd_aligned(&self) -> bool {
-        (self.data.as_ptr() as usize) % 32 == 0
+    #[cfg(target_arch = "x86_64")]
+    pub(crate) fn is_simd_aligned(&self) -> bool {
+        // Maintain AVX2 compatibility for existing SIMD paths
+        (self.data.as_ptr() as usize).is_multiple_of(32)
     }
 
     /// Gets the memory alignment of the tensor data
@@ -1050,8 +1209,12 @@ impl Tensor {
     #[inline]
     #[track_caller]
     pub fn memory_alignment(&self) -> usize {
-        // Our tensors are allocated with 32-byte alignment for AVX2
-        32
+        if let Some(owner) = self.allocation_owner() {
+            owner.alignment()
+        } else {
+            // Zero-sized or non-owned views default to conservative 32
+            32
+        }
     }
 
     /// Checks if this tensor is broadcastable with another tensor
@@ -1087,7 +1250,7 @@ impl Tensor {
     #[inline]
     #[track_caller]
     pub fn memory_footprint(&self) -> usize {
-        self.shape.size * std::mem::size_of::<f32>()
+        self.shape.size() * std::mem::size_of::<f32>()
     }
 
     /// Get a single element from the tensor at the specified indices
@@ -1124,7 +1287,7 @@ impl Tensor {
         // Check bounds
         for (i, &idx) in indices.iter().enumerate() {
             assert!(
-                idx < self.shape().dims[i],
+                idx < self.shape().dims()[i],
                 "Index {} out of bounds for dimension {}",
                 idx,
                 i
@@ -1166,7 +1329,7 @@ impl Tensor {
         // Check bounds
         for (i, &idx) in indices.iter().enumerate() {
             assert!(
-                idx < self.shape().dims[i],
+                idx < self.shape().dims()[i],
                 "Index {} out of bounds for dimension {}",
                 idx,
                 i
@@ -1252,6 +1415,8 @@ impl Tensor {
         if self.size() == 0 {
             return &mut [];
         }
+        // Copy-on-write to protect existing views
+        self.ensure_unique_allocation();
         unsafe { std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.size()) }
     }
 
@@ -1287,7 +1452,7 @@ impl Tensor {
             "value() can only be called on tensors with exactly one element. \
              This tensor has {} elements with shape {:?}",
             self.size(),
-            self.shape().dims
+            self.shape().dims()
         );
         self.data()[0]
     }
@@ -1312,13 +1477,53 @@ impl Tensor {
     ///
     /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
     /// let y = x.view(vec![2, 2]);
-    /// assert_eq!(y.shape().dims, vec![2, 2]);
+    /// assert_eq!(y.shape().dims(), vec![2, 2]);
     /// ```
     #[track_caller]
     pub fn view(&self, new_shape: Vec<i32>) -> Tensor {
-        // Use the views module implementation
-        use crate::tensor::transform::view::TensorViewExt;
-        TensorViewExt::view(self, new_shape)
+        // PyTorch-like view with single -1 inference; requires contiguity
+        let size = self.size();
+        let mut infer_idx: Option<usize> = None;
+        let mut product: usize = 1;
+        let mut dims: Vec<usize> = Vec::with_capacity(new_shape.len());
+        for (i, d) in new_shape.iter().enumerate() {
+            if *d == -1 {
+                assert!(infer_idx.is_none(), "Only one -1 is allowed in view shape");
+                infer_idx = Some(i);
+                dims.push(1);
+            } else {
+                assert!(*d > 0, "Negative dims not supported in view shape");
+                let du = *d as usize;
+                product = product.saturating_mul(du);
+                dims.push(du);
+            }
+        }
+        if let Some(pos) = infer_idx {
+            assert!(
+                product > 0 && size.is_multiple_of(product),
+                "View shape incompatible with tensor size"
+            );
+            dims[pos] = size / product;
+        } else {
+            assert!(
+                product == size,
+                "View shape has different number of elements"
+            );
+        }
+
+        let mut v = match crate::tensor::core::view::reshape_view(self, &dims) {
+            Ok(v) => v,
+            Err(e) => panic!("view reshape error: {:?}", e),
+        };
+        if self.requires_grad() && gradtrack::is_grad_enabled() {
+            v.set_requires_grad(true);
+            let grad_fn = GradFn::Reshape {
+                original_shape: self.shape().dims().to_vec(),
+            };
+            v.set_grad_fn(grad_fn.clone());
+            GradEngine::register_operation(v.id(), vec![self.id()], grad_fn);
+        }
+        v
     }
 
     /// Create an element view for the specified index
@@ -1345,8 +1550,25 @@ impl Tensor {
     /// ```
     #[track_caller]
     pub fn element_view(&self, index: usize) -> Tensor {
-        use crate::tensor::transform::view::TensorViewExt;
-        TensorViewExt::element_view(self, index)
+        let mut v = match crate::tensor::core::view::element_view_linear(self, index) {
+            Ok(v) => v,
+            Err(e) => panic!("element_view error: {:?}", e),
+        };
+        if self.requires_grad() && gradtrack::is_grad_enabled() {
+            v.set_requires_grad(true);
+            // Reuse SliceView grad for single-element selection to propagate back to source
+            let grad_fn = GradFn::View {
+                mapping: crate::gradtrack::grad_fn::ViewMapping::LinearRange {
+                    start: index,
+                    step: 1,
+                    length: 1,
+                },
+                input_shape: self.shape().dims().to_vec(),
+            };
+            v.set_grad_fn(grad_fn.clone());
+            GradEngine::register_operation(v.id(), vec![self.id()], grad_fn);
+        }
+        v
     }
 
     /// Create a slice view of the tensor
@@ -1370,12 +1592,34 @@ impl Tensor {
     ///
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
     /// let slice = tensor.slice_view(1, 2, 2); // [2.0, 4.0]
-    /// assert_eq!(slice.data(), &[2.0, 4.0]);
+    /// assert_eq!(slice.get(&[0]), 2.0);
+    /// assert_eq!(slice.get(&[1]), 4.0);
     /// ```
     #[track_caller]
     pub fn slice_view(&self, start: usize, step: usize, length: usize) -> Tensor {
-        use crate::tensor::transform::view::TensorViewExt;
-        TensorViewExt::slice_view(self, start, step, length)
+        let mut v = match crate::tensor::core::view::slice_view_linear(self, start, step, length) {
+            Ok(v) => v,
+            Err(e) => panic!("slice_view error: {:?}", e),
+        };
+        // Ensure correct data() representation for stepped views
+        // Offset-only (step==1, start>0) is already contiguous via base pointer
+        if step != 1 {
+            v = v.contiguous();
+        }
+        if self.requires_grad() && gradtrack::is_grad_enabled() {
+            v.set_requires_grad(true);
+            let grad_fn = GradFn::View {
+                mapping: crate::gradtrack::grad_fn::ViewMapping::LinearRange {
+                    start,
+                    step,
+                    length,
+                },
+                input_shape: self.shape().dims().to_vec(),
+            };
+            v.set_grad_fn(grad_fn.clone());
+            GradEngine::register_operation(v.id(), vec![self.id()], grad_fn);
+        }
+        v
     }
 
     /// Create a tensor view from raw components
@@ -1420,9 +1664,11 @@ impl Tensor {
             device,
             id,
             requires_grad: false,
+            retain_grad: false,
             grad: None,
             grad_fn: GradFn::None,
             allocation_owner,
+            graph_group: None,
             _phantom: PhantomData,
         }
     }
@@ -1488,7 +1734,7 @@ impl Tensor {
         let shape = Shape::new(shape_dims);
         let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
-        if shape.size == 0 {
+        if shape.size() == 0 {
             // Handle zero-sized tensors
             return Self {
                 data: NonNull::dangling(),
@@ -1496,32 +1742,34 @@ impl Tensor {
                 device: current_device(),
                 id,
                 requires_grad: false,
+                retain_grad: false,
                 grad: None,
                 grad_fn: GradFn::None,
                 allocation_owner: None,
+                graph_group: None,
                 _phantom: PhantomData,
             };
         }
 
-        // Optimized layout calculation for better cache performance
-        let element_size = std::mem::size_of::<f32>();
-        let total_size = shape.size * element_size;
-
-        // Use cache line alignment for large tensors, smaller alignment for small ones
-        let alignment = if total_size > 4096 {
-            64 // Cache line alignment for large tensors
-        } else if shape.size >= 8 {
-            32 // AVX2 alignment for medium tensors
-        } else {
-            16 // SSE alignment for small tensors
-        };
-
+        let (alignment, padded_elems) = compute_allocation_params(shape.size());
+        let total_size = padded_elems * std::mem::size_of::<f32>();
         let layout = Layout::from_size_align(total_size, alignment)
             .expect("Failed to create layout for tensor data");
 
         // Allocate memory via shared Allocation (uninitialized)
-        let alloc_obj = Allocation::new_uninitialized(shape.size, alignment, layout);
+        let alloc_obj = if use_pool_alloc_enabled() {
+            Allocation::new_pooled(padded_elems, alignment, layout)
+        } else {
+            Allocation::new_uninitialized(padded_elems, alignment, layout)
+        };
         let ptr = alloc_obj.ptr;
+
+        debug_assert!(
+            alloc_obj.capacity_elems() >= padded_elems,
+            "Allocation capacity ({}) smaller than padded elements ({})",
+            alloc_obj.capacity_elems(),
+            padded_elems
+        );
 
         Self {
             data: ptr,
@@ -1529,10 +1777,321 @@ impl Tensor {
             device: current_device(),
             id,
             requires_grad: false,
+            retain_grad: false,
             grad: None,
             grad_fn: GradFn::None,
             allocation_owner: Some(std::sync::Arc::new(alloc_obj)),
+            graph_group: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Create a new uninitialized tensor with an explicit alignment request (in bytes)
+    ///
+    /// This is intended for internal high-performance paths (e.g., packed GEMM panels)
+    /// where stronger alignment such as 64 bytes is desired even on AVX2 systems.
+    #[inline]
+    #[track_caller]
+    pub fn new_uninitialized_aligned(shape_dims: Vec<usize>, alignment_bytes: usize) -> Self {
+        let shape = Shape::new(shape_dims);
+        let id = TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        if shape.size() == 0 {
+            return Self {
+                data: NonNull::dangling(),
+                shape,
+                device: current_device(),
+                id,
+                requires_grad: false,
+                retain_grad: false,
+                grad: None,
+                grad_fn: GradFn::None,
+                allocation_owner: None,
+                graph_group: None,
+                _phantom: PhantomData,
+            };
+        }
+
+        // Preserve the usual element padding policy
+        let (_default_align, padded_elems) = compute_allocation_params(shape.size());
+        // Honor explicit alignment request (at least 16)
+        let alignment = alignment_bytes.max(16);
+        let total_size = padded_elems * std::mem::size_of::<f32>();
+        let layout = Layout::from_size_align(total_size, alignment)
+            .expect("Failed to create layout for tensor data (aligned)");
+
+        let alloc_obj = if use_pool_alloc_enabled() {
+            Allocation::new_pooled(padded_elems, alignment, layout)
+        } else {
+            Allocation::new_uninitialized(padded_elems, alignment, layout)
+        };
+        let ptr = alloc_obj.ptr;
+
+        debug_assert!(alloc_obj.capacity_elems() >= padded_elems);
+
+        Self {
+            data: ptr,
+            shape,
+            device: current_device(),
+            id,
+            requires_grad: false,
+            retain_grad: false,
+            grad: None,
+            grad_fn: GradFn::None,
+            allocation_owner: Some(std::sync::Arc::new(alloc_obj)),
+            graph_group: None,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(test)]
+mod memory_alloc_tests {
+    use super::*;
+    use crate::tensor::core::memory::{
+        detect_runtime_simd, simd_alignment_bytes, simd_lane_width_elems, with_no_mem_padding,
+        TensorMemoryPool,
+    };
+
+    #[test]
+    fn test_padding_and_alignment_pool_enabled() {
+        let lane = simd_lane_width_elems(detect_runtime_simd());
+        let align = simd_alignment_bytes(detect_runtime_simd());
+
+        let req = lane * 3 + 1; // force padding
+        let t = Tensor::new(vec![req]);
+
+        assert_eq!(t.capacity_elems() % lane, 0);
+        unsafe {
+            assert_eq!((t.as_ptr() as usize) % align, 0);
+        }
+        // Logical size is not a multiple of lane, so aligned SIMD ops are not preferred
+        #[cfg(target_arch = "x86_64")]
+        assert!(!t.prefer_aligned_simd_ops());
+
+        drop(t);
+    }
+
+    #[test]
+    fn test_no_padding_with_guard() {
+        with_no_mem_padding(|| {
+            let lane = simd_lane_width_elems(detect_runtime_simd());
+            let req = lane * 3 + 1; // non-multiple
+            let t = Tensor::new(vec![req]);
+
+            assert_eq!(t.size(), req);
+            #[cfg(target_arch = "x86_64")]
+            assert!(!t.prefer_aligned_simd_ops());
+        });
+    }
+
+    #[test]
+    fn test_system_alloc_no_pool_counters_unchanged() {
+        let before = TensorMemoryPool::thread_stats();
+        let _t1 = Tensor::new(vec![128]);
+        let _t2 = Tensor::new(vec![257]);
+        let after = TensorMemoryPool::thread_stats();
+        assert_eq!(before.allocations, 0);
+        assert_eq!(after.allocations, 2);
+        assert_eq!(before.deallocations, 0);
+    }
+
+    #[test]
+    fn test_pool_alloc_and_dealloc_counters_match() {
+        let before = TensorMemoryPool::thread_stats();
+        {
+            let _t1 = Tensor::new(vec![64]);
+            let _t2 = Tensor::new(vec![2048]);
+            let _t3 = Tensor::new(vec![131072]);
+        }
+        let after = TensorMemoryPool::thread_stats();
+        assert!(after.allocations >= before.allocations + 3);
+        assert!(after.deallocations >= before.deallocations + 3);
+    }
+
+    #[test]
+    fn test_mixed_modes_no_leak_in_pool_stats_scope() {
+        let before = TensorMemoryPool::thread_stats();
+        {
+            let _a = Tensor::new(vec![1000]);
+            let _b = Tensor::new(vec![1000]);
+            let _c = Tensor::new(vec![2000]);
+            let _c = Tensor::new(vec![2000]);
+        }
+
+        let after = TensorMemoryPool::thread_stats();
+        assert_eq!(
+            after.allocations - before.allocations,
+            after.deallocations - before.deallocations
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_alignment_helpers_and_hints() {
+        let lane = simd_lane_width_elems(detect_runtime_simd());
+        let req = lane * 4; // exact multiple
+        let t = Tensor::new(vec![req]);
+        assert!(t.is_aligned_for_runtime_level());
+        assert!(t.prefer_aligned_simd_ops());
+        assert!(!t.should_use_unaligned_simd_ops());
+
+        with_no_mem_padding(|| {
+            let lane = simd_lane_width_elems(detect_runtime_simd());
+            let req = lane * 4 + 1; // not multiple
+            let t = Tensor::new(vec![req]);
+            assert!(!t.prefer_aligned_simd_ops());
+            assert!(t.should_use_unaligned_simd_ops());
+        });
+    }
+}
+
+#[cfg(test)]
+mod memory_alloc_additional_tests {
+    use super::*;
+    use crate::tensor::core::memory::{
+        detect_runtime_simd, simd_lane_width_elems, with_no_mem_padding, with_no_mem_pool,
+        TensorMemoryPool,
+    };
+    use std::time::Instant;
+
+    #[test]
+    fn test_zero_size_tensors_pool_and_system() {
+        let t = Tensor::new(vec![0]);
+        assert_eq!(t.size(), 0);
+        assert_eq!(t.capacity_elems(), 0);
+        assert_eq!(t.data().len(), 0);
+        let t = Tensor::new(vec![0]);
+        assert_eq!(t.size(), 0);
+        assert_eq!(t.capacity_elems(), 0);
+        assert_eq!(t.data().len(), 0);
+    }
+
+    #[test]
+    fn test_capacity_across_various_sizes_padding_modes() {
+        let lane = simd_lane_width_elems(detect_runtime_simd());
+        let sizes = [
+            0,
+            1,
+            lane - 1,
+            lane,
+            lane + 1,
+            2 * lane - 1,
+            2 * lane + 1,
+            1000,
+            1001,
+        ];
+
+        for &n in &sizes {
+            let t = Tensor::new(vec![n]);
+            let expected_padded = if n == 0 { 0 } else { n.div_ceil(lane) * lane };
+            // Pool may round up further than lane padding; ensure at least padded and lane-aligned
+            assert!(
+                t.capacity_elems() >= expected_padded,
+                "n={} lane={} cap={}",
+                n,
+                lane,
+                t.capacity_elems()
+            );
+            if t.capacity_elems() > 0 {
+                assert_eq!(
+                    t.capacity_elems() % lane,
+                    0,
+                    "capacity not lane-multiple: {}",
+                    t.capacity_elems()
+                );
+            }
+        }
+        with_no_mem_padding(|| {
+            for &n in &sizes {
+                let t = Tensor::new(vec![n]);
+                assert_eq!(t.size(), n);
+            }
+        });
+    }
+
+    #[test]
+    fn test_class_boundary_planned_capacity_pool() {
+        let boundaries = [
+            crate::tensor::core::memory::SMALL_BUFFER_SIZE,
+            crate::tensor::core::memory::SMALL_BUFFER_SIZE + 1,
+            crate::tensor::core::memory::MEDIUM_BUFFER_SIZE,
+            crate::tensor::core::memory::MEDIUM_BUFFER_SIZE + 1,
+            crate::tensor::core::memory::LARGE_BUFFER_SIZE,
+            crate::tensor::core::memory::LARGE_BUFFER_SIZE + 1,
+        ];
+        let lane = simd_lane_width_elems(detect_runtime_simd());
+        for &n in &boundaries {
+            let padded = if n == 0 { 0 } else { n.div_ceil(lane) * lane };
+            let planned = TensorMemoryPool::planned_capacity_elems(padded);
+            let t = Tensor::new(vec![n]);
+            assert_eq!(t.capacity_elems(), planned, "boundary n={}", n);
+        }
+    }
+
+    #[test]
+    fn test_view_does_not_allocate_additional_memory() {
+        let before = TensorMemoryPool::thread_stats();
+        let t = Tensor::new(vec![256]);
+        let _view = t.view(vec![16, 16]);
+        let after = TensorMemoryPool::thread_stats();
+        // Exactly one allocation happened (for t), view didn't allocate
+        assert_eq!(after.allocations, before.allocations + 1);
+    }
+
+    #[test]
+    fn test_performance_pool_vs_system_small_allocs() {
+        let iters = 1000;
+        let _ = Tensor::new(vec![64]);
+        let _ = Tensor::new(vec![64]);
+        let _ = Tensor::new(vec![64]);
+
+        let pool_time = {
+            let start = Instant::now();
+            for _ in 0..iters {
+                let _t = Tensor::new(vec![64]);
+            }
+            start.elapsed()
+        };
+        let sys_time = with_no_mem_pool(|| {
+            let start = Instant::now();
+            for _ in 0..iters {
+                let _t = Tensor::new(vec![64]);
+            }
+            start.elapsed()
+        });
+        assert!(
+            pool_time <= sys_time * 10,
+            "pool {:?} vs system {:?}",
+            pool_time,
+            sys_time
+        );
+    }
+
+    #[test]
+    fn test_performance_padded_vs_unpadded_fill() {
+        let lane = simd_lane_width_elems(detect_runtime_simd());
+        let n = lane * 2048;
+
+        let padded_time = {
+            let t = Tensor::new(vec![n]);
+            let mut x = t.clone();
+            let start = Instant::now();
+            x.fill(1.2345);
+            start.elapsed()
+        };
+        let unpadded_time = with_no_mem_padding(|| {
+            let t = Tensor::new(vec![n + 1]);
+            let mut x = t.clone();
+            let start = Instant::now();
+            x.fill(1.2345);
+            start.elapsed()
+        });
+        assert!(
+            padded_time <= unpadded_time * 100,
+            "padded {:?} vs unpadded {:?}",
+            padded_time,
+            unpadded_time
+        );
     }
 }

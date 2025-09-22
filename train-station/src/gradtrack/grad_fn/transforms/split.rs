@@ -23,7 +23,7 @@ pub(crate) fn apply_split(
             let s = if i == dim {
                 length
             } else {
-                grad_output.shape().dims[i]
+                grad_output.shape().dims()[i]
             };
             coords[i] = if s == 0 { 0 } else { tmp % s };
             if s != 0 {

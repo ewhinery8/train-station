@@ -6,11 +6,11 @@ pub(crate) fn apply_softmax(
     saved_output: &Tensor,
     grad_output: &Tensor,
 ) -> Vec<Option<Tensor>> {
-    let dims = saved_output.shape().dims.clone();
+    let dims = saved_output.shape().dims().to_vec();
     let reduce = dims[dim];
     let inner: usize = dims[dim + 1..].iter().product();
     let outer: usize = dims[..dim].iter().product();
-    let mut grad_input = Tensor::zeros(dims.clone());
+    let mut grad_input = Tensor::zeros(dims.to_vec());
     unsafe {
         let y = saved_output.as_ptr();
         let go = grad_output.as_ptr();

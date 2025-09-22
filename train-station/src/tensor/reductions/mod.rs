@@ -63,13 +63,13 @@
 //!
 //! // Sum along first dimension (rows)
 //! let row_sums = tensor.sum_dims(&[0], false);
-//! assert_eq!(row_sums.shape().dims, vec![2]);
+//! assert_eq!(row_sums.shape().dims(), vec![2]);
 //! assert_eq!(row_sums.get(&[0]), 4.0); // 1.0 + 3.0
 //! assert_eq!(row_sums.get(&[1]), 6.0); // 2.0 + 4.0
 //!
 //! // Mean along second dimension (columns)
 //! let col_means = tensor.mean_dims(&[1], false);
-//! assert_eq!(col_means.shape().dims, vec![2]);
+//! assert_eq!(col_means.shape().dims(), vec![2]);
 //! assert_eq!(col_means.get(&[0]), 1.5); // (1.0 + 2.0) / 2
 //! assert_eq!(col_means.get(&[1]), 3.5); // (3.0 + 4.0) / 2
 //! ```

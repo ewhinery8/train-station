@@ -25,13 +25,13 @@
 //! // Flatten a 2D tensor
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
 //! let flattened = tensor.flatten();
-//! assert_eq!(flattened.shape().dims, vec![4]);
+//! assert_eq!(flattened.shape().dims(), vec![4]);
 //!
 //! // Flatten a 3D tensor
 //! let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
 //! let tensor = Tensor::from_slice(&data, vec![2, 2, 3]).unwrap();
 //! let flattened = tensor.flatten();
-//! assert_eq!(flattened.shape().dims, vec![12]);
+//! assert_eq!(flattened.shape().dims(), vec![12]);
 //! ```
 
 use crate::tensor::Tensor;
@@ -63,7 +63,7 @@ impl Tensor {
     /// // Flatten a 2D tensor
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let flattened = tensor.flatten();
-    /// assert_eq!(flattened.shape().dims, vec![4]);
+    /// assert_eq!(flattened.shape().dims(), vec![4]);
     /// assert_eq!(flattened.get(&[0]), 1.0);
     /// assert_eq!(flattened.get(&[1]), 2.0);
     /// assert_eq!(flattened.get(&[2]), 3.0);
@@ -77,7 +77,7 @@ impl Tensor {
     /// let data: Vec<f32> = (0..12).map(|i| i as f32).collect();
     /// let tensor = Tensor::from_slice(&data, vec![2, 2, 3]).unwrap();
     /// let flattened = tensor.flatten();
-    /// assert_eq!(flattened.shape().dims, vec![12]);
+    /// assert_eq!(flattened.shape().dims(), vec![12]);
     /// assert_eq!(flattened.size(), 12);
     /// ```
     ///
@@ -90,7 +90,7 @@ impl Tensor {
     ///
     /// let flattened = tensor.flatten();
     /// assert!(flattened.requires_grad());
-    /// assert_eq!(flattened.shape().dims, vec![4]);
+    /// assert_eq!(flattened.shape().dims(), vec![4]);
     /// ```
     ///
     /// ```
@@ -99,7 +99,7 @@ impl Tensor {
     /// // Flatten an already 1D tensor (no change)
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
     /// let flattened = tensor.flatten();
-    /// assert_eq!(flattened.shape().dims, vec![3]);
+    /// assert_eq!(flattened.shape().dims(), vec![3]);
     /// assert_eq!(flattened.size(), 3);
     /// ```
     ///
@@ -136,7 +136,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
         let flattened = tensor.flatten();
 
-        assert_eq!(flattened.shape().dims, vec![4]);
+        assert_eq!(flattened.shape().dims(), vec![4]);
         assert_eq!(flattened.size(), 4);
     }
 
@@ -146,7 +146,7 @@ mod tests {
         let tensor = Tensor::from_slice(&data, vec![2, 3, 4]).unwrap();
         let flattened = tensor.flatten();
 
-        assert_eq!(flattened.shape().dims, vec![24]);
+        assert_eq!(flattened.shape().dims(), vec![24]);
         assert_eq!(flattened.size(), 24);
     }
 
@@ -155,7 +155,7 @@ mod tests {
         let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0], vec![3]).unwrap();
         let flattened = tensor.flatten();
 
-        assert_eq!(flattened.shape().dims, vec![3]);
+        assert_eq!(flattened.shape().dims(), vec![3]);
         assert_eq!(flattened.size(), 3);
     }
 

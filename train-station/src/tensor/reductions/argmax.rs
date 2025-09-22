@@ -41,7 +41,7 @@ impl Tensor {
     /// // 1D tensor
     /// let tensor = Tensor::from_slice(&[1.0, 5.0, 3.0, 2.0], vec![4]).unwrap();
     /// let max_idx = tensor.argmax();
-    /// assert_eq!(max_idx.shape().dims, vec![1]);
+    /// assert_eq!(max_idx.shape().dims(), vec![1]);
     /// assert_eq!(max_idx.get(&[0]), 1.0); // Index 1 has value 5.0
     /// ```
     ///
@@ -87,7 +87,7 @@ impl Tensor {
             }
         } else {
             // Stride-aware path for non-contiguous tensors
-            let dims = self.shape().dims.clone();
+            let dims = self.shape().dims().to_vec();
             for flat_idx in 0..self.size() {
                 // Convert flat index to multi-dimensional coordinates
                 let mut coords = vec![0; dims.len()];
@@ -150,7 +150,7 @@ impl Tensor {
     ///
     /// // argmax along columns (dim=1)
     /// let col_max_idx = tensor.argmax_dim(1, false);
-    /// assert_eq!(col_max_idx.shape().dims, vec![2]);
+    /// assert_eq!(col_max_idx.shape().dims(), vec![2]);
     /// assert_eq!(col_max_idx.get(&[0]), 1.0); // Row 0: max at index 1 (value 3.0)
     /// assert_eq!(col_max_idx.get(&[1]), 2.0); // Row 1: max at index 2 (value 5.0)
     /// ```
@@ -161,7 +161,7 @@ impl Tensor {
     /// // argmax along rows (dim=0) with keepdim
     /// let tensor = Tensor::from_slice(&[1.0, 3.0, 2.0, 4.0, 0.0, 5.0], vec![2, 3]).unwrap();
     /// let row_max_idx = tensor.argmax_dim(0, true);
-    /// assert_eq!(row_max_idx.shape().dims, vec![1, 3]);
+    /// assert_eq!(row_max_idx.shape().dims(), vec![1, 3]);
     /// assert_eq!(row_max_idx.get(&[0, 0]), 1.0); // Col 0: max at index 1 (value 4.0)
     /// assert_eq!(row_max_idx.get(&[0, 1]), 0.0); // Col 1: max at index 0 (value 3.0)
     /// assert_eq!(row_max_idx.get(&[0, 2]), 1.0); // Col 2: max at index 1 (value 5.0)
@@ -173,7 +173,7 @@ impl Tensor {
     /// // 1D tensor edge case
     /// let tensor = Tensor::from_slice(&[5.0, 1.0, 8.0, 3.0], vec![4]).unwrap();
     /// let max_idx = tensor.argmax_dim(0, false);
-    /// assert_eq!(max_idx.shape().dims, vec![1]); // Special case: becomes [1] not []
+    /// assert_eq!(max_idx.shape().dims(), vec![1]); // Special case: becomes [1] not []
     /// assert_eq!(max_idx.get(&[0]), 2.0); // Index 2 has maximum value 8.0
     /// ```
     #[track_caller]
@@ -186,7 +186,7 @@ impl Tensor {
             rank
         );
 
-        let in_dims = self.shape().dims.clone();
+        let in_dims = self.shape().dims().to_vec();
         let reduce_size = in_dims[dim];
         assert!(reduce_size > 0, "cannot argmax over empty dimension");
 
@@ -277,7 +277,7 @@ mod tests {
         let idx = x.argmax();
 
         // Check output shape
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
         assert_eq!(idx.size(), 1);
 
         // Check result
@@ -310,7 +310,7 @@ mod tests {
         let x = Tensor::from_slice(&[1.0, 3.0, 2.0, 4.0, 0.0, 5.0], vec![2, 3]).unwrap();
         let idx = x.argmax();
 
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
         assert_eq!(idx.get(&[0]), 5.0); // flat index 5 has value 5.0
     }
 
@@ -323,24 +323,24 @@ mod tests {
 
         // argmax along dim=1 (along columns within each row)
         let idx1_keepdim = x.argmax_dim(1, true);
-        assert_eq!(idx1_keepdim.shape().dims, vec![2, 1]);
+        assert_eq!(idx1_keepdim.shape().dims(), vec![2, 1]);
         assert_eq!(idx1_keepdim.get(&[0, 0]), 1.0); // row 0: max at index 1 (value 3.0)
         assert_eq!(idx1_keepdim.get(&[1, 0]), 2.0); // row 1: max at index 2 (value 5.0)
 
         let idx1_no_keepdim = x.argmax_dim(1, false);
-        assert_eq!(idx1_no_keepdim.shape().dims, vec![2]);
+        assert_eq!(idx1_no_keepdim.shape().dims(), vec![2]);
         assert_eq!(idx1_no_keepdim.get(&[0]), 1.0);
         assert_eq!(idx1_no_keepdim.get(&[1]), 2.0);
 
         // argmax along dim=0 (along rows within each column)
         let idx0_keepdim = x.argmax_dim(0, true);
-        assert_eq!(idx0_keepdim.shape().dims, vec![1, 3]);
+        assert_eq!(idx0_keepdim.shape().dims(), vec![1, 3]);
         assert_eq!(idx0_keepdim.get(&[0, 0]), 1.0); // col 0: max at index 1 (value 4.0)
         assert_eq!(idx0_keepdim.get(&[0, 1]), 0.0); // col 1: max at index 0 (value 3.0)
         assert_eq!(idx0_keepdim.get(&[0, 2]), 1.0); // col 2: max at index 1 (value 5.0)
 
         let idx0_no_keepdim = x.argmax_dim(0, false);
-        assert_eq!(idx0_no_keepdim.shape().dims, vec![3]);
+        assert_eq!(idx0_no_keepdim.shape().dims(), vec![3]);
         assert_eq!(idx0_no_keepdim.get(&[0]), 1.0);
         assert_eq!(idx0_no_keepdim.get(&[1]), 0.0);
         assert_eq!(idx0_no_keepdim.get(&[2]), 1.0);
@@ -360,7 +360,7 @@ mod tests {
 
         // argmax along dim=2 (innermost dimension)
         let idx2 = x.argmax_dim(2, false);
-        assert_eq!(idx2.shape().dims, vec![2, 2]);
+        assert_eq!(idx2.shape().dims(), vec![2, 2]);
         assert_eq!(idx2.get(&[0, 0]), 1.0); // [1.0, 2.0] -> max at index 1
         assert_eq!(idx2.get(&[0, 1]), 1.0); // [3.0, 4.0] -> max at index 1
         assert_eq!(idx2.get(&[1, 0]), 1.0); // [5.0, 6.0] -> max at index 1
@@ -380,7 +380,7 @@ mod tests {
         // Transposed: [[1.0, 4.0],
         //              [3.0, 0.0],
         //              [2.0, 5.0]]
-        assert_eq!(x_t.shape().dims, vec![3, 2]);
+        assert_eq!(x_t.shape().dims(), vec![3, 2]);
         assert!(!x_t.is_contiguous()); // Should be a view
 
         // Test global argmax on transposed view
@@ -389,13 +389,13 @@ mod tests {
 
         // Test argmax along dim=0 of transposed tensor
         let idx0 = x_t.argmax_dim(0, false);
-        assert_eq!(idx0.shape().dims, vec![2]);
+        assert_eq!(idx0.shape().dims(), vec![2]);
         assert_eq!(idx0.get(&[0]), 1.0); // col 0: [1.0, 3.0, 2.0] -> max 3.0 at index 1
         assert_eq!(idx0.get(&[1]), 2.0); // col 1: [4.0, 0.0, 5.0] -> max 5.0 at index 2
 
         // Test argmax along dim=1 of transposed tensor
         let idx1 = x_t.argmax_dim(1, false);
-        assert_eq!(idx1.shape().dims, vec![3]);
+        assert_eq!(idx1.shape().dims(), vec![3]);
         assert_eq!(idx1.get(&[0]), 1.0); // row 0: [1.0, 4.0] -> max 4.0 at index 1
         assert_eq!(idx1.get(&[1]), 0.0); // row 1: [3.0, 0.0] -> max 3.0 at index 0
         assert_eq!(idx1.get(&[2]), 1.0); // row 2: [2.0, 5.0] -> max 5.0 at index 1
@@ -415,14 +415,14 @@ mod tests {
         // Select middle row (creates a view)
         let middle_row = x.select(0, 1);
         // [5, 6, 7, 8]
-        assert_eq!(middle_row.shape().dims, vec![4]);
+        assert_eq!(middle_row.shape().dims(), vec![4]);
 
         let idx = middle_row.argmax();
         assert_eq!(idx.get(&[0]), 3.0); // index 3 has value 8.0
 
         // Test argmax_dim on 1D slice (should work the same as global argmax)
         let idx_dim = middle_row.argmax_dim(0, false);
-        assert_eq!(idx_dim.shape().dims, vec![1]);
+        assert_eq!(idx_dim.shape().dims(), vec![1]);
         assert_eq!(idx_dim.get(&[0]), 3.0);
     }
 
@@ -435,7 +435,7 @@ mod tests {
 
         // Permute to [4, 2, 3] (swap dims 0 and 2)
         let x_perm = x.permute(vec![2, 1, 0]);
-        assert_eq!(x_perm.shape().dims, vec![4, 3, 2]);
+        assert_eq!(x_perm.shape().dims(), vec![4, 3, 2]);
         assert!(!x_perm.is_contiguous());
 
         // Global argmax should still find the maximum value (23)
@@ -444,13 +444,13 @@ mod tests {
 
         // Test argmax along each dimension of permuted tensor
         let idx0 = x_perm.argmax_dim(0, false); // [3, 2]
-        assert_eq!(idx0.shape().dims, vec![3, 2]);
+        assert_eq!(idx0.shape().dims(), vec![3, 2]);
 
         let idx1 = x_perm.argmax_dim(1, false); // [4, 2]
-        assert_eq!(idx1.shape().dims, vec![4, 2]);
+        assert_eq!(idx1.shape().dims(), vec![4, 2]);
 
         let idx2 = x_perm.argmax_dim(2, false); // [4, 3]
-        assert_eq!(idx2.shape().dims, vec![4, 3]);
+        assert_eq!(idx2.shape().dims(), vec![4, 3]);
     }
 
     #[test]
@@ -464,7 +464,7 @@ mod tests {
         // First transpose, then select a row
         let x_t = x.transpose(0, 1); // [3, 4]
         let row = x_t.select(0, 1); // Select second row: [2, 5, 8, 11]
-        assert_eq!(row.shape().dims, vec![4]);
+        assert_eq!(row.shape().dims(), vec![4]);
 
         let idx = row.argmax();
         assert_eq!(idx.get(&[0]), 3.0); // index 3 has value 11.0
@@ -485,28 +485,28 @@ mod tests {
 
         // Test argmax along each dimension
         let idx0_keepdim = x.argmax_dim(0, true);
-        assert_eq!(idx0_keepdim.shape().dims, vec![1, 3, 4, 5]);
+        assert_eq!(idx0_keepdim.shape().dims(), vec![1, 3, 4, 5]);
 
         let idx0_no_keepdim = x.argmax_dim(0, false);
-        assert_eq!(idx0_no_keepdim.shape().dims, vec![3, 4, 5]);
+        assert_eq!(idx0_no_keepdim.shape().dims(), vec![3, 4, 5]);
 
         let idx1_keepdim = x.argmax_dim(1, true);
-        assert_eq!(idx1_keepdim.shape().dims, vec![2, 1, 4, 5]);
+        assert_eq!(idx1_keepdim.shape().dims(), vec![2, 1, 4, 5]);
 
         let idx1_no_keepdim = x.argmax_dim(1, false);
-        assert_eq!(idx1_no_keepdim.shape().dims, vec![2, 4, 5]);
+        assert_eq!(idx1_no_keepdim.shape().dims(), vec![2, 4, 5]);
 
         let idx2_keepdim = x.argmax_dim(2, true);
-        assert_eq!(idx2_keepdim.shape().dims, vec![2, 3, 1, 5]);
+        assert_eq!(idx2_keepdim.shape().dims(), vec![2, 3, 1, 5]);
 
         let idx2_no_keepdim = x.argmax_dim(2, false);
-        assert_eq!(idx2_no_keepdim.shape().dims, vec![2, 3, 5]);
+        assert_eq!(idx2_no_keepdim.shape().dims(), vec![2, 3, 5]);
 
         let idx3_keepdim = x.argmax_dim(3, true);
-        assert_eq!(idx3_keepdim.shape().dims, vec![2, 3, 4, 1]);
+        assert_eq!(idx3_keepdim.shape().dims(), vec![2, 3, 4, 1]);
 
         let idx3_no_keepdim = x.argmax_dim(3, false);
-        assert_eq!(idx3_no_keepdim.shape().dims, vec![2, 3, 4]);
+        assert_eq!(idx3_no_keepdim.shape().dims(), vec![2, 3, 4]);
 
         // Check some specific values for the innermost dimension (dim=3)
         // For each [i, j, k, :] slice, argmax should be 4 (index of max in size-5 dimension)
@@ -526,22 +526,22 @@ mod tests {
         let x1d = Tensor::from_slice(&[5.0, 1.0, 8.0, 3.0], vec![4]).unwrap();
 
         let idx_keepdim = x1d.argmax_dim(0, true);
-        assert_eq!(idx_keepdim.shape().dims, vec![1]);
+        assert_eq!(idx_keepdim.shape().dims(), vec![1]);
         assert_eq!(idx_keepdim.get(&[0]), 2.0);
 
         let idx_no_keepdim = x1d.argmax_dim(0, false);
-        assert_eq!(idx_no_keepdim.shape().dims, vec![1]); // Special case: becomes [1] not []
+        assert_eq!(idx_no_keepdim.shape().dims(), vec![1]); // Special case: becomes [1] not []
         assert_eq!(idx_no_keepdim.get(&[0]), 2.0);
 
         // Test edge case: dimension of size 1
         let x_size_1 = Tensor::from_slice(&[42.0], vec![1]).unwrap();
 
         let idx = x_size_1.argmax_dim(0, true);
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
         assert_eq!(idx.get(&[0]), 0.0);
 
         let idx = x_size_1.argmax_dim(0, false);
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
         assert_eq!(idx.get(&[0]), 0.0);
     }
 
@@ -558,13 +558,13 @@ mod tests {
 
         // argmax along dim=0 (columns)
         let idx0 = x2d.argmax_dim(0, false);
-        assert_eq!(idx0.shape().dims, vec![2]);
+        assert_eq!(idx0.shape().dims(), vec![2]);
         assert_eq!(idx0.get(&[0]), 1.0); // col 0: [3, 5, 1] -> first 5 at index 1
         assert_eq!(idx0.get(&[1]), 0.0); // col 1: [5, 2, 5] -> first 5 at index 0
 
         // argmax along dim=1 (rows)
         let idx1 = x2d.argmax_dim(1, false);
-        assert_eq!(idx1.shape().dims, vec![3]);
+        assert_eq!(idx1.shape().dims(), vec![3]);
         assert_eq!(idx1.get(&[0]), 1.0); // row 0: [3, 5] -> max at index 1
         assert_eq!(idx1.get(&[1]), 0.0); // row 1: [5, 2] -> max at index 0
         assert_eq!(idx1.get(&[2]), 1.0); // row 2: [1, 5] -> max at index 1
@@ -608,7 +608,7 @@ mod tests {
 
         // Test argmax along the large dimension
         let idx_dim1 = x2.argmax_dim(1, false);
-        assert_eq!(idx_dim1.shape().dims, vec![10]);
+        assert_eq!(idx_dim1.shape().dims(), vec![10]);
         // Each row's max should be at index 99 (last column)
         for i in 0..10 {
             assert_eq!(idx_dim1.get(&[i]), 99.0);
@@ -633,7 +633,7 @@ mod tests {
 
         // Reduce along dim=1 (middle dimension)
         let idx = x.argmax_dim(1, true);
-        assert_eq!(idx.shape().dims, vec![2, 1, 4]);
+        assert_eq!(idx.shape().dims(), vec![2, 1, 4]);
 
         // For [0, :, j] where j=0,1,2,3: values are [1,5], [2,6], [3,7], [4,8]
         // Max indices should be [1,1,1,1] (second slice wins)

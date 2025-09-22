@@ -1,85 +1,89 @@
-//! High-performance automatic differentiation system for Train Station
+//! High-performance automatic differentiation (GradTrack)
 //!
-//! This module provides the core gradient tracking (GradTrack) system that enables automatic
-//! differentiation for machine learning operations. The system is designed for maximum performance
-//! with zero-cost abstractions and efficient memory management while maintaining mathematical
-//! correctness and thread safety.
+//! Concise, PyTorch-inspired gradient tracking for all `Tensor` ops (including broadcasting,
+//! views, iterators, and matmul). Designed for research and performance:
+//! - **Transparent**: ops auto-register gradients; call `backward()` on a result
+//! - **Thread-safe**: local graphs for single-thread speed; shared graphs unify across threads
+//! - **Efficient**: zero-cost dispatch for gradient functions; vectorized math where possible
+//! - **Practical hygiene**: explicit clearing helpers to avoid stale tensors lingering on graphs
 //!
-//! # Purpose
+//! ## Quick examples
 //!
-//! The GradTrack system serves as the foundation for automatic differentiation in Train Station,
-//! providing:
-//! - **Computation graph construction**: Automatic tracking of tensor operations for backpropagation
-//! - **Gradient computation**: Efficient backward pass implementation with proper gradient accumulation
-//! - **Memory management**: Optimized gradient storage and cleanup with minimal overhead
-//! - **Thread safety**: Thread-local gradient context management for concurrent training
-//! - **Performance optimization**: Zero-cost gradient function dispatch and SIMD-optimized operations
+//! Basic backward and gradient access (owned):
+//! ```
+//! use train_station::Tensor;
 //!
-//! # Core Components
+//! let x = Tensor::ones(vec![2, 3]).with_requires_grad();
+//! let y = x.mul_scalar(2.0).add_scalar(1.0);
+//! let mut loss = y.sum();
+//! loss.backward(None);
+//! let gx = x.grad_owned().unwrap();
+//! assert_eq!(gx.shape().dims(), vec![2, 3]);
+//! ```
 //!
-//! ## GradEngine
-//! The central gradient computation engine that manages the computation graph and orchestrates
-//! backward passes. It provides thread-local storage for gradient data and implements efficient
-//! gradient accumulation algorithms.
+//! Disable gradients for inference:
+//! ```
+//! use train_station::gradtrack::{with_no_grad, NoGradTrack};
+//! use train_station::Tensor;
 //!
-//! ## GradFn
-//! Enumeration of gradient functions that represent different tensor operations. Each variant
-//! contains the necessary information to compute gradients for its corresponding operation,
-//! enabling zero-cost dispatch without virtual function calls.
+//! let a = Tensor::ones(vec![4, 4]).with_requires_grad();
+//! with_no_grad(|| {
+//!     let _z = a.mul_scalar(3.0); // no grad tracked
+//! });
 //!
-//! ## NoGradTrack
-//! Context management system for disabling gradient tracking during inference or when gradients
-//! are not needed. This provides significant performance improvements for forward-only operations.
+//! let _guard = NoGradTrack::new();
+//! let _z2 = a.add_scalar(5.0); // also no grad tracked in this scope
+//! ```
 //!
-//! # Architecture
+//! Clearing to prevent stale tensors on graphs:
+//! ```
+//! use train_station::gradtrack::{clear_gradient_for_tensor, clear_local_graph, clear_all_shared_graphs};
+//! use train_station::Tensor;
 //!
-//! The GradTrack system follows a computation graph approach similar to PyTorch's autograd:
+//! let x = Tensor::ones(vec![2, 2]).with_requires_grad();
+//! let mut s = x.sum();
+//! s.backward(None);
+//! clear_gradient_for_tensor(x.id());
+//! clear_local_graph();
+//! // If using shared graphs across threads in your app:
+//! clear_all_shared_graphs();
+//! ```
 //!
-//! ## Forward Pass
-//! During tensor operations, the system automatically:
-//! 1. **Records operations**: Each tensor operation registers its gradient function
-//! 2. **Builds computation graph**: Links between input and output tensors are established
-//! 3. **Stores metadata**: Necessary information for gradient computation is preserved
+//! Cross-thread creation and returning tensors to main:
+//! ```
+//! use train_station::Tensor;
+//! use train_station::tensor::with_no_mem_pool; // system allocator for returned tensors
+//! use std::thread;
 //!
-//! ## Backward Pass
-//! When `backward()` is called:
-//! 1. **Traverses graph**: Computation graph is traversed in reverse topological order
-//! 2. **Computes gradients**: Each gradient function computes partial derivatives
-//! 3. **Accumulates gradients**: Multiple gradients to the same tensor are properly accumulated
-//! 4. **Manages memory**: Intermediate gradients are efficiently stored and cleaned up
+//! // Create a tensor in a worker and return it to main
+//! let handle = thread::spawn(|| {
+//!     with_no_mem_pool(|| Tensor::ones(vec![8]).with_requires_grad())
+//! });
+//! let t = handle.join().unwrap();
+//! // Continue building the graph on main thread
+//! let y = t.mul_scalar(2.0);
+//! let mut loss = y.sum();
+//! loss.backward(None);
+//! assert!(t.grad_owned().is_some());
+//! ```
 //!
-//! # Performance Characteristics
+//! Tip: GradTrack cooperates with all major initialization methods (`zeros`, `ones`, `randn`,
+//! `from_slice`, `new`), element-wise ops, activations, broadcasting, matmul, and view/iterator-based
+//! transforms.
 //!
-//! ## Memory Efficiency
-//! - **Minimal overhead**: Each tensor carries only a 1-byte GradFn enum for gradient tracking
-//! - **Efficient storage**: Thread-local gradient storage minimizes allocation overhead
-//! - **Smart cleanup**: Automatic gradient cleanup prevents memory leaks
+//! ## Troubleshooting
 //!
-//! ## Computational Efficiency
-//! - **Zero-cost dispatch**: Enum-based gradient functions eliminate virtual function overhead
-//! - **SIMD optimization**: Gradient computations leverage vectorized operations where possible
-//! - **Lazy evaluation**: Gradients are computed only when needed during backward pass
-//!
-//! ## Thread Safety
-//! - **Thread-local storage**: Each thread maintains its own computation graph
-//! - **No global state**: Eliminates synchronization overhead in multi-threaded training
-//! - **Context isolation**: Gradient contexts are properly isolated between threads
-//!
-//! # Integration with Tensor Operations
-//!
-//! The GradTrack system integrates seamlessly with tensor operations:
-//! - **Automatic registration**: Tensor operations automatically register gradient functions
-//! - **Transparent operation**: No changes needed to existing tensor operation code
-//! - **Conditional tracking**: Gradient tracking can be enabled/disabled per tensor
-//! - **Efficient propagation**: Gradients flow efficiently through complex computation graphs
-//!
-//! # Thread Safety
-//!
-//! All components in this module are designed to be thread-safe:
-//! - **Thread-local gradient storage**: Each thread maintains independent gradient state
-//! - **Atomic gradient context**: Gradient enable/disable state is managed atomically
-//! - **Safe concurrent access**: Multiple threads can perform gradient operations simultaneously
-//! - **No data races**: Careful design eliminates potential data races in gradient computation
+//! - Gradients are stale or unexpectedly persist across iterations:
+//!   - Call `clear_gradient_for_tensor(id)` for specific tensors, or `clear_local_graph()` / `clear_all_shared_graphs()`
+//!     at iteration boundaries in long-running services.
+//! - No gradient returned:
+//!   - Ensure inputs have `.with_requires_grad()` and `backward(None)` was called on a leaf result.
+//!   - Use `grad_owned()` when you need ownership, `grad()` for a reference. For non-leaf tensors using
+//!     `retain_grad()`, call `materialize_grad()` or `grad_or_fetch()` after backward.
+//! - Cross-thread usage:
+//!   - If creating tensors in worker threads and returning them to main, wrap creation in
+//!     `train_station::tensor::with_no_mem_pool(|| ...)` so allocations use the system allocator
+//!     instead of a thread-local pool.
 
 /// Gradient computation engine and computation graph management
 ///
@@ -87,7 +91,7 @@
 /// orchestrates backward passes, and handles gradient accumulation. It provides
 /// thread-local storage for gradient data and implements efficient algorithms
 /// for gradient computation and memory management.
-pub mod engine;
+pub(crate) mod engine;
 
 /// Gradient function enumeration and dispatch system
 ///
@@ -95,7 +99,7 @@ pub mod engine;
 /// and their corresponding gradient computation functions. It enables zero-cost
 /// gradient function dispatch without virtual function overhead while maintaining
 /// type safety and performance.
-pub mod grad_fn;
+pub(crate) mod grad_fn;
 
 /// Gradient context management for inference optimization
 ///
@@ -103,23 +107,14 @@ pub mod grad_fn;
 /// gradients are not needed, such as during inference or evaluation. It offers
 /// significant performance improvements by eliminating gradient computation overhead
 /// for forward-only operations.
-pub mod no_grad_track;
-
-// Re-exports for convenient access to core gradient tracking functionality
-
-/// Clear all accumulated gradients from the current thread's gradient storage
-///
-/// This function removes all gradient data from the thread-local gradient storage,
-/// effectively resetting the gradient state. It's useful for cleaning up after
-/// training iterations or when switching between different computation contexts.
-pub use engine::clear_gradients;
+pub(crate) mod no_grad_track;
 
 /// Retrieve accumulated gradient for a specific tensor
 ///
 /// This function returns the accumulated gradient for a tensor identified by its
 /// unique ID. It provides access to the final gradient values after backward
 /// pass completion, enabling gradient inspection and custom gradient processing.
-pub use engine::get_accumulated_gradient;
+pub(crate) use engine::get_accumulated_gradient;
 
 /// The central gradient computation engine
 ///
@@ -127,7 +122,11 @@ pub use engine::get_accumulated_gradient;
 /// computation graphs, coordinating backward passes, and handling gradient
 /// accumulation. It provides the primary interface for gradient-related operations
 /// in the Train Station automatic differentiation system.
-pub use engine::GradEngine;
+pub(crate) use engine::GradEngine;
+pub use engine::{
+    clear_all_graphs_known, clear_all_shared_graphs, clear_gradient_for_tensor, clear_gradients,
+    clear_graph_for_tensor, clear_local_graph, clear_shared_graph_for_tensor,
+};
 
 /// Enumeration of gradient functions for different tensor operations
 ///
@@ -135,7 +134,7 @@ pub use engine::GradEngine;
 /// enabling efficient dispatch and gradient computation. Each variant contains
 /// the necessary metadata to compute gradients for its corresponding operation
 /// while maintaining zero-cost abstraction principles.
-pub use grad_fn::GradFn;
+pub(crate) use grad_fn::GradFn;
 
 /// Check if gradient tracking is currently enabled
 ///

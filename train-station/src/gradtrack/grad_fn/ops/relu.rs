@@ -2,7 +2,7 @@ use crate::tensor::core::Tensor;
 
 // Backward for ReLU: dL/dx = dL/dy if x>0 else 0
 pub(crate) fn apply_relu(saved_input: &Tensor, grad_output: &Tensor) -> Vec<Option<Tensor>> {
-    let mut grad_input = Tensor::zeros(saved_input.shape().dims.clone());
+    let mut grad_input = Tensor::zeros(saved_input.shape().dims().to_vec());
     unsafe {
         let x = saved_input.as_ptr();
         let go = grad_output.as_ptr();

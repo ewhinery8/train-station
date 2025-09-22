@@ -51,7 +51,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[0.0, 1.0, 2.0], vec![3]).unwrap();
     /// let b = a.exp();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 1.0); // e^0 = 1
     /// assert!((b.get(&[1]) - 2.71828).abs() < 1e-5); // e^1 ≈ 2.71828
     /// assert!((b.get(&[2]) - 7.38906).abs() < 1e-5); // e^2 ≈ 7.38906
@@ -64,7 +64,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-1.0, 0.0, 1.0], vec![3]).unwrap();
     /// let b = a.exp();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert!((b.get(&[0]) - 0.36788).abs() < 1e-5); // e^(-1) ≈ 0.36788
     /// assert_eq!(b.get(&[1]), 1.0); // e^0 = 1
     /// assert!((b.get(&[2]) - 2.71828).abs() < 1e-5); // e^1 ≈ 2.71828
@@ -108,7 +108,7 @@ impl Tensor {
     /// need for high-precision mathematical operations.
     #[inline]
     pub(crate) fn exp_optimized(&self) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         // Fast return for zero-sized tensors
         if self.size() == 0 {

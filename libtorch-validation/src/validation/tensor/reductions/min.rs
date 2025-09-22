@@ -35,7 +35,7 @@ impl TensorValidator {
         let y = x.mul_scalar(2.0).add_scalar(-1.0);
         let mut m = y.min();
         m.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };
@@ -111,7 +111,7 @@ impl TensorValidator {
         }
         let mut m = x.min_dims(dims, keepdim);
         m.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };

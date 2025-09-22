@@ -58,24 +58,20 @@ impl MatmulPerformanceTester {
 
     /// Test matrix multiplication performance for compatible shapes
     pub fn test_matmul(&mut self, shape_a: &[usize], shape_b: &[usize]) -> PerformanceResult {
+        let a = create_test_tensor(shape_a, TestPattern::Random);
+        let b = create_test_tensor(shape_b, TestPattern::Sequential);
+        let a_data = create_data_with_pattern(shape_a, TestPattern::Random);
+        let b_data = create_data_with_pattern(shape_b, TestPattern::Sequential);
+        let a_torch = LibTorchTensor::from_data(&a_data, shape_a)
+            .expect("Failed to create LibTorch tensor A");
+        let b_torch = LibTorchTensor::from_data(&b_data, shape_b)
+            .expect("Failed to create LibTorch tensor B");
         self.tester.benchmark_with_params(
             "matmul",
             shape_a,
             &[("shape_b", &format!("{:?}", shape_b))],
-            || {
-                let a = create_test_tensor(shape_a, TestPattern::Random);
-                let b = create_test_tensor(shape_b, TestPattern::Sequential);
-                a.matmul(&b)
-            },
-            || {
-                let a_data = create_data_with_pattern(shape_a, TestPattern::Random);
-                let b_data = create_data_with_pattern(shape_b, TestPattern::Sequential);
-                let a = LibTorchTensor::from_data(&a_data, shape_a)
-                    .expect("Failed to create LibTorch tensor A");
-                let b = LibTorchTensor::from_data(&b_data, shape_b)
-                    .expect("Failed to create LibTorch tensor B");
-                a.matmul(&b)
-            },
+            || a.matmul(&b),
+            || a_torch.matmul(&b_torch),
         )
     }
 

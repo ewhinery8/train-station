@@ -295,12 +295,12 @@ impl Adam {
         );
 
         let param_id = parameter.id();
-        let param_shape = parameter.shape().dims.clone();
+        let param_shape = parameter.shape().dims();
 
         // Initialize state for this parameter if not already present
         use std::collections::hash_map::Entry;
         if let Entry::Vacant(entry) = self.states.entry(param_id) {
-            entry.insert(ParameterState::new(&param_shape));
+            entry.insert(ParameterState::new(param_shape));
             self.insertion_order.push(param_id);
         }
     }
@@ -435,8 +435,8 @@ impl Adam {
                 .ok_or_else(|| format!("No saved state found for parameter at position {}", i))?;
 
             // Validate shape matches
-            let param_shape = &param.shape().dims;
-            let saved_shape = &saved_state.m.shape().dims;
+            let param_shape = &param.shape().dims();
+            let saved_shape = &saved_state.m.shape().dims();
             if param_shape != saved_shape {
                 return Err(format!(
                     "Shape mismatch for parameter at position {}: expected {:?}, got {:?}",
@@ -504,7 +504,7 @@ impl Adam {
 
         // Get parameter gradient
         let grad = param
-            .grad_by_value()
+            .grad_owned()
             .ok_or_else(|| format!("Parameter {} has no gradient", param_id))?;
 
         // Get parameter state
@@ -513,9 +513,9 @@ impl Adam {
             .get_mut(&param_id)
             .expect("Parameter state should exist after link check");
 
-        // Increment step count
+        // Increment per-parameter step count and use it for bias correction
         state.step += 1;
-        let step = self.step_count as f32; // Use global step count for bias correction
+        let step = state.step as f32;
 
         // Apply weight decay if enabled
         let effective_grad = if self.config.weight_decay > 0.0 {
@@ -534,12 +534,12 @@ impl Adam {
         Self::update_velocity(&mut state.v, &effective_grad, self.config.beta2);
 
         // Compute bias-corrected first moment estimate
-        let bias_correction1 = 1.0 - (self.config.beta1 as f64).powf(step as f64);
-        let m_hat = Self::bias_correct(&state.m, bias_correction1 as f32);
+        let bias_correction1 = 1.0 - (self.config.beta1).powf(step);
+        let m_hat = Self::bias_correct(&state.m, bias_correction1);
 
         // Compute bias-corrected second moment estimate
-        let bias_correction2 = 1.0 - (self.config.beta2 as f64).powf(step as f64);
-        let mut v_hat = Self::bias_correct(&state.v, bias_correction2 as f32);
+        let bias_correction2 = 1.0 - (self.config.beta2).powf(step);
+        let mut v_hat = Self::bias_correct(&state.v, bias_correction2);
 
         // AMSGrad: use maximum of v_hat over time
         if self.config.amsgrad {
@@ -1073,9 +1073,6 @@ impl Optimizer for Adam {
         for param in parameters {
             param.zero_grad();
         }
-
-        // Also clear gradient tracking gradient map
-        crate::gradtrack::clear_gradients();
     }
 
     /// Get the current learning rate
@@ -1222,7 +1219,7 @@ mod tests {
         optimizer.zero_grad(&mut [&mut weight]);
 
         // After zero_grad, there should be no accumulated gradients
-        assert!(weight.grad_by_value().is_none());
+        assert!(weight.grad_owned().is_none());
     }
 
     /// Test requires_grad assertion
@@ -1261,8 +1258,8 @@ mod tests {
     fn test_parameter_state_creation() {
         let state = ParameterState::new(&[3, 4]);
 
-        assert_eq!(state.m.shape().dims, vec![3, 4]);
-        assert_eq!(state.v.shape().dims, vec![3, 4]);
+        assert_eq!(state.m.shape().dims(), vec![3, 4]);
+        assert_eq!(state.v.shape().dims(), vec![3, 4]);
         assert!(state.v_hat_max.is_none());
         assert_eq!(state.step, 0);
 
@@ -1405,8 +1402,8 @@ mod tests {
         optimizer.step(&mut [&mut weight, &mut bias]);
 
         // Both parameters should have gradients
-        assert!(weight.grad_by_value().is_some());
-        assert!(bias.grad_by_value().is_some());
+        assert!(weight.grad_owned().is_some());
+        assert!(bias.grad_owned().is_some());
     }
 
     /// Test optimizer with custom configuration and multiple steps
@@ -1473,7 +1470,7 @@ mod tests {
             optimizer.step(&mut [&mut tensor]);
 
             // Verify tensor is still valid
-            assert_eq!(tensor.shape().dims, shape);
+            assert_eq!(tensor.shape().dims(), shape);
             assert!(tensor.requires_grad());
         }
     }
@@ -1535,9 +1532,9 @@ mod tests {
         let state_2d = &optimizer.states[&weight_2d.id()];
         let state_3d = &optimizer.states[&weight_3d.id()];
 
-        assert_eq!(state_1d.m.shape().dims, vec![5]);
-        assert_eq!(state_2d.m.shape().dims, vec![3, 4]);
-        assert_eq!(state_3d.m.shape().dims, vec![2, 3, 4]);
+        assert_eq!(state_1d.m.shape().dims(), vec![5]);
+        assert_eq!(state_2d.m.shape().dims(), vec![3, 4]);
+        assert_eq!(state_3d.m.shape().dims(), vec![2, 3, 4]);
     }
 
     /// Test parameter relinking with shape consistency
@@ -1559,8 +1556,8 @@ mod tests {
 
         // Verify state was created with correct shape
         let original_state = &optimizer.states[&weight_original.id()];
-        assert_eq!(original_state.m.shape().dims, vec![3, 3]);
-        assert_eq!(original_state.v.shape().dims, vec![3, 3]);
+        assert_eq!(original_state.m.shape().dims(), vec![3, 3]);
+        assert_eq!(original_state.v.shape().dims(), vec![3, 3]);
 
         // Create new parameter with same shape (will get different ID)
         let weight_new = Tensor::ones(vec![3, 3]).with_requires_grad();
@@ -1576,8 +1573,8 @@ mod tests {
         assert!(optimizer.is_parameter_linked(&weight_new));
 
         let new_state = &optimizer.states[&weight_new.id()];
-        assert_eq!(new_state.m.shape().dims, vec![3, 3]);
-        assert_eq!(new_state.v.shape().dims, vec![3, 3]);
+        assert_eq!(new_state.m.shape().dims(), vec![3, 3]);
+        assert_eq!(new_state.v.shape().dims(), vec![3, 3]);
     }
 
     /// Test large parameter count handling

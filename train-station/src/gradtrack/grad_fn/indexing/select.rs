@@ -14,7 +14,7 @@ pub(crate) fn apply_select(
     for lin in 0..out_numel {
         let mut tmp = lin;
         for i in (0..(rank - 1)).rev() {
-            let s = grad_output.shape().dims[i];
+            let s = grad_output.shape().dims()[i];
             coords[i] = if s == 0 { 0 } else { tmp % s };
             if s != 0 {
                 tmp /= s;

@@ -9,6 +9,13 @@ use crate::tensor::Shape;
 
 use super::Tensor;
 
+/// Allocation source tracking for proper deallocation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AllocationSource {
+    Pool,
+    System,
+}
+
 /// Shared memory allocation for tensor storage
 ///
 /// Enables zero-copy tensor views by sharing memory allocation between multiple
@@ -64,6 +71,9 @@ pub struct Allocation {
     /// Alignment requirement for the allocated memory. Used for SIMD operations
     /// and cache optimization.
     alignment: usize,
+
+    /// Source of the allocation for proper deallocation
+    source: AllocationSource,
 }
 
 // Make Allocation Send + Sync for thread-safe usage with Arc
@@ -110,10 +120,19 @@ impl Allocation {
             }
             NonNull::new_unchecked(p as *mut f32)
         };
+        // Ensure alignment guarantees are met
+        let addr = ptr.as_ptr() as usize;
+        assert_eq!(
+            addr % alignment,
+            0,
+            "System allocation not aligned to {} bytes",
+            alignment
+        );
         Allocation {
             ptr,
             size,
             alignment,
+            source: AllocationSource::System,
         }
     }
 
@@ -148,7 +167,7 @@ impl Allocation {
     /// This method is used internally by the tensor system to allocate uninitialized
     /// memory for tensor data. The memory must be properly initialized before use
     /// to avoid undefined behavior.
-    pub(super) fn new_uninitialized(size: usize, alignment: usize, layout: Layout) -> Self {
+    pub(crate) fn new_uninitialized(size: usize, alignment: usize, layout: Layout) -> Self {
         let ptr = unsafe {
             let p = alloc(layout);
             if p.is_null() {
@@ -156,11 +175,58 @@ impl Allocation {
             }
             NonNull::new_unchecked(p as *mut f32)
         };
+        let addr = ptr.as_ptr() as usize;
+        assert_eq!(
+            addr % alignment,
+            0,
+            "System allocation not aligned to {} bytes",
+            alignment
+        );
         Allocation {
             ptr,
             size,
             alignment,
+            source: AllocationSource::System,
         }
+    }
+
+    /// Creates a new memory allocation using the thread-local memory pool with fallback.
+    pub(crate) fn new_pooled(size: usize, alignment: usize, layout: Layout) -> Self {
+        let planned = crate::tensor::core::memory::TensorMemoryPool::planned_capacity_elems(size);
+        match crate::tensor::core::memory::TensorMemoryPool::allocate(size, alignment) {
+            Some(ptr) => {
+                let addr = ptr.as_ptr() as usize;
+                let effective_alignment = alignment.max(std::mem::align_of::<f32>());
+
+                if !addr.is_multiple_of(effective_alignment) {
+                    return Self::new(size, alignment, layout);
+                }
+                Allocation {
+                    ptr,
+                    size: planned,
+                    alignment,
+                    source: AllocationSource::Pool,
+                }
+            }
+            None => Self::new(size, alignment, layout),
+        }
+    }
+
+    // Pool-based allocation removed for simplicity and to avoid cross-thread leaks
+
+    /// Returns the memory alignment of this allocation
+    ///
+    /// The alignment is determined by the tensor size and optimized for
+    /// SIMD operations (SSE, AVX2) and cache performance.
+    pub fn alignment(&self) -> usize {
+        self.alignment
+    }
+
+    /// Returns the total capacity of this allocation in number of f32 elements.
+    /// This may be greater than the logical tensor length due to SIMD padding.
+    #[inline]
+    pub fn capacity_elems(&self) -> usize {
+        self.size
     }
 }
 
@@ -175,13 +241,23 @@ impl Drop for Allocation {
     /// This function is safe because it only deallocates memory that was
     /// properly allocated by the `new` method and maintains the same layout.
     fn drop(&mut self) {
-        if self.size > 0 {
-            unsafe {
+        if self.size == 0 {
+            return;
+        }
+        match self.source {
+            AllocationSource::Pool => {
+                // Attempt to return to the current thread's pool. If TLS is unavailable
+                // or the pointer isn't known to this pool (e.g., dropped on a different
+                // thread than it was allocated), DO NOT deallocate here to avoid double free.
+                // The owning pool retains the allocation and will reclaim it or free it when dropped.
+                let _ = crate::tensor::core::memory::TensorMemoryPool::try_deallocate(self.ptr);
+            }
+            AllocationSource::System => unsafe {
                 let layout =
                     Layout::from_size_align(self.size * std::mem::size_of::<f32>(), self.alignment)
-                        .expect("Failed to create layout for deallocation");
+                        .expect("Invalid layout for allocation deallocation");
                 dealloc(self.ptr.as_ptr() as *mut u8, layout);
-            }
+            },
         }
     }
 }
@@ -192,31 +268,6 @@ impl Tensor {
     /// Creates a new tensor that shares the same memory allocation as this tensor
     /// but with different shape and stride information. This enables efficient
     /// tensor transformations without copying data.
-    ///
-    /// # Arguments
-    ///
-    /// * `new_shape` - New shape with dimensions and strides for the view
-    ///
-    /// # Returns
-    ///
-    /// New tensor view sharing memory with the original tensor
-    ///
-    /// # Performance
-    ///
-    /// - **Zero Copy**: No data copying, only metadata creation
-    /// - **Memory Efficient**: Shares allocation with original tensor
-    /// - **Thread Safe**: Atomic ID generation for gradtrack tracking
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the new shape is compatible with the
-    /// underlying memory layout and that the view doesn't exceed memory bounds.
-    ///
-    /// # Implementation Details
-    ///
-    /// This method is used internally by tensor operations to create efficient
-    /// views without copying data. The new tensor shares the same memory allocation
-    /// but has different shape and stride information for efficient transformations.
     pub(crate) fn create_view_with_shape(&self, new_shape: Shape) -> Tensor {
         let mut t = Tensor {
             data: self.data,
@@ -224,12 +275,13 @@ impl Tensor {
             device: self.device,
             id: TENSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             requires_grad: false,
+            retain_grad: false,
             grad: None,
             grad_fn: GradFn::None,
             allocation_owner: self.allocation_owner.clone(),
+            graph_group: self.graph_group.clone(),
             _phantom: PhantomData,
         };
-        // Preserve requires_grad flag (gradtrack registration is done by caller op)
         if self.requires_grad {
             t.requires_grad = true;
         }

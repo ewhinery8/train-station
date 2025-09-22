@@ -102,7 +102,505 @@
 use super::grad_fn::GradFn;
 use crate::tensor::core::Tensor;
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::thread::ThreadId;
+
+// -------------------------------------------------------------------------------------------------
+// Type aliases to reduce type complexity and satisfy clippy::type_complexity
+// -------------------------------------------------------------------------------------------------
+type OperationRecord = (Vec<usize>, GradFn);
+type OperationMap = HashMap<usize, OperationRecord>;
+type GradientMap = HashMap<usize, Tensor>;
+type ShardedOpMaps = Vec<RwLock<OperationMap>>;
+type ShardedGradMaps = Vec<Mutex<GradientMap>>;
+type GroupMap = HashMap<usize, Arc<GraphGroupRef>>;
+type GroupShards = Vec<Mutex<GroupMap>>;
+
+// =============================================================================================
+// Graph groups and shared-graph infrastructure (implicit cross-thread accumulation)
+// =============================================================================================
+
+const NUM_SHARDS: usize = 64;
+
+static GROUP_ID_COUNTER: AtomicUsize = AtomicUsize::new(1);
+
+// Sharded global map: tensor_id -> GraphGroupRef (shared across threads)
+static ID_GROUP_SHARDS: OnceLock<GroupShards> = OnceLock::new();
+
+fn id_group_shards() -> &'static GroupShards {
+    ID_GROUP_SHARDS.get_or_init(|| {
+        (0..NUM_SHARDS)
+            .map(|_| Mutex::new(HashMap::with_capacity(256)))
+            .collect()
+    })
+}
+
+#[inline]
+fn shard_index_for_id(tensor_id: usize) -> usize {
+    tensor_id % NUM_SHARDS
+}
+
+#[inline]
+fn id_group_get(tensor_id: usize) -> Option<Arc<GraphGroupRef>> {
+    let shards = id_group_shards();
+    let idx = shard_index_for_id(tensor_id);
+    let map = shards[idx].lock().unwrap();
+    map.get(&tensor_id).cloned()
+}
+
+#[inline]
+fn id_group_insert(tensor_id: usize, group: Arc<GraphGroupRef>) {
+    let shards = id_group_shards();
+    let idx = shard_index_for_id(tensor_id);
+    let mut map = shards[idx].lock().unwrap();
+    map.insert(tensor_id, group);
+}
+
+/// Shared, sharded computation graph for cross-thread usage
+struct SharedGradGraph {
+    operations: ShardedOpMaps,
+    gradients: ShardedGradMaps,
+    retained: RwLock<HashSet<usize>>, // ids to retain gradients for after backward
+}
+
+impl SharedGradGraph {
+    fn new() -> Self {
+        let mut operations = Vec::with_capacity(NUM_SHARDS);
+        let mut gradients = Vec::with_capacity(NUM_SHARDS);
+        for _ in 0..NUM_SHARDS {
+            operations.push(RwLock::new(HashMap::with_capacity(256)));
+            gradients.push(Mutex::new(HashMap::with_capacity(256)));
+        }
+        Self {
+            operations,
+            gradients,
+            retained: RwLock::new(HashSet::with_capacity(256)),
+        }
+    }
+
+    #[inline]
+    fn shard(tensor_id: usize) -> usize {
+        shard_index_for_id(tensor_id)
+    }
+
+    fn register_operation(&self, output_id: usize, input_ids: Vec<usize>, grad_fn: GradFn) {
+        let shard = Self::shard(output_id);
+        let mut op_map = self.operations[shard].write().unwrap();
+        op_map.insert(output_id, (input_ids, grad_fn));
+    }
+
+    fn get_operation(&self, tensor_id: usize) -> Option<(Vec<usize>, GradFn)> {
+        let shard = Self::shard(tensor_id);
+        let op_map = self.operations[shard].read().unwrap();
+        op_map.get(&tensor_id).cloned()
+    }
+
+    fn store_gradient(&self, tensor_id: usize, gradient: Tensor) {
+        let shard = Self::shard(tensor_id);
+        let mut grads = self.gradients[shard].lock().unwrap();
+        grads.insert(tensor_id, gradient);
+    }
+
+    fn get_gradient(&self, tensor_id: usize) -> Option<Tensor> {
+        let shard = Self::shard(tensor_id);
+        let grads = self.gradients[shard].lock().unwrap();
+        grads.get(&tensor_id).cloned()
+    }
+
+    fn take_gradient(&self, tensor_id: usize) -> Option<Tensor> {
+        let shard = Self::shard(tensor_id);
+        let mut grads = self.gradients[shard].lock().unwrap();
+        grads.remove(&tensor_id)
+    }
+
+    fn accumulate_gradient(&self, tensor_id: usize, gradient: Tensor) {
+        let shard = Self::shard(tensor_id);
+        let mut grads = self.gradients[shard].lock().unwrap();
+        if let Some(existing) = grads.get_mut(&tensor_id) {
+            // Avoid in-place corruption; assign new accumulated tensor
+            let new_acc = existing.add_tensor_optimized(&gradient);
+            *existing = new_acc;
+        } else {
+            grads.insert(tensor_id, gradient);
+        }
+    }
+
+    fn mark_retain(&self, tensor_id: usize) {
+        let mut set = self.retained.write().unwrap();
+        set.insert(tensor_id);
+    }
+
+    fn should_retain(&self, tensor_id: usize) -> bool {
+        let set = self.retained.read().unwrap();
+        set.contains(&tensor_id)
+    }
+
+    /// Clear all stored operations, gradients, and retained flags from this shared graph
+    fn clear_all(&self) {
+        for shard in 0..NUM_SHARDS {
+            self.operations[shard].write().unwrap().clear();
+            self.gradients[shard].lock().unwrap().clear();
+        }
+        self.retained.write().unwrap().clear();
+    }
+}
+
+/// Graph group reference that can be Local (lock-free) or Shared (sharded locks)
+pub(crate) struct GraphGroupRef {
+    id: usize,
+    state: Mutex<GraphGroupState>,
+}
+
+enum GraphGroupState {
+    Local {
+        owner: ThreadId,
+        graph: GradGraph,
+        retained: HashSet<usize>,
+    },
+    Shared(Arc<SharedGradGraph>),
+}
+
+impl GraphGroupRef {
+    fn new_local_current_thread() -> Arc<Self> {
+        Arc::new(GraphGroupRef {
+            id: GROUP_ID_COUNTER.fetch_add(1, AtomicOrdering::Relaxed),
+            state: Mutex::new(GraphGroupState::Local {
+                owner: std::thread::current().id(),
+                graph: GradGraph::new(),
+                retained: HashSet::with_capacity(256),
+            }),
+        })
+    }
+
+    fn ensure_shared(this: &Arc<Self>) -> Arc<SharedGradGraph> {
+        // Promote Local -> Shared if needed; return Shared handle
+        let mut guard = this.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Shared(s) => s.clone(),
+            GraphGroupState::Local {
+                graph, retained, ..
+            } => {
+                let shared = Arc::new(SharedGradGraph::new());
+                // Migrate operations
+                for (out_id, (inputs, gfn)) in graph.operations.drain() {
+                    shared.register_operation(out_id, inputs, gfn);
+                }
+                // Migrate gradients
+                for (tid, grad) in graph.gradients.drain() {
+                    shared.store_gradient(tid, grad);
+                }
+                // Migrate retained
+                for id in retained.drain() {
+                    shared.mark_retain(id);
+                }
+                *guard = GraphGroupState::Shared(shared.clone());
+                shared
+            }
+        }
+    }
+
+    fn owner_thread_id(&self) -> Option<ThreadId> {
+        let guard = self.state.lock().unwrap();
+        match &*guard {
+            GraphGroupState::Local { owner, .. } => Some(*owner),
+            GraphGroupState::Shared(_) => None,
+        }
+    }
+
+    fn register_operation(&self, output_id: usize, input_ids: Vec<usize>, grad_fn: GradFn) {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local { graph, .. } => {
+                graph.register_operation(output_id, input_ids, grad_fn);
+            }
+            GraphGroupState::Shared(shared) => {
+                shared.register_operation(output_id, input_ids, grad_fn);
+            }
+        }
+    }
+
+    fn get_operation(&self, tensor_id: usize) -> Option<(Vec<usize>, GradFn)> {
+        let guard = self.state.lock().unwrap();
+        match &*guard {
+            GraphGroupState::Local { graph, .. } => graph.get_operation(tensor_id).cloned(),
+            GraphGroupState::Shared(shared) => shared.get_operation(tensor_id),
+        }
+    }
+
+    fn store_gradient(&self, tensor_id: usize, gradient: Tensor) {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local { graph, .. } => graph.store_gradient(tensor_id, gradient),
+            GraphGroupState::Shared(shared) => shared.store_gradient(tensor_id, gradient),
+        }
+    }
+
+    fn take_gradient(&self, tensor_id: usize) -> Option<Tensor> {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local { graph, .. } => graph.take_gradient(tensor_id),
+            GraphGroupState::Shared(shared) => shared.take_gradient(tensor_id),
+        }
+    }
+
+    fn accumulate_gradient(&self, tensor_id: usize, gradient: Tensor) {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local { graph, .. } => graph.accumulate_gradient(tensor_id, gradient),
+            GraphGroupState::Shared(shared) => shared.accumulate_gradient(tensor_id, gradient),
+        }
+    }
+
+    fn get_gradient_value(&self, tensor_id: usize) -> Option<Tensor> {
+        let guard = self.state.lock().unwrap();
+        match &*guard {
+            GraphGroupState::Local { graph, .. } => graph.get_gradient(tensor_id).cloned(),
+            GraphGroupState::Shared(shared) => shared.get_gradient(tensor_id),
+        }
+    }
+
+    fn mark_retain(&self, tensor_id: usize) {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local { retained, .. } => {
+                retained.insert(tensor_id);
+            }
+            GraphGroupState::Shared(shared) => shared.mark_retain(tensor_id),
+        }
+    }
+
+    fn should_retain(&self, tensor_id: usize) -> bool {
+        let guard = self.state.lock().unwrap();
+        match &*guard {
+            GraphGroupState::Local { retained, .. } => retained.contains(&tensor_id),
+            GraphGroupState::Shared(shared) => shared.should_retain(tensor_id),
+        }
+    }
+
+    /// Clear all operations/gradients from this graph group (local or shared)
+    fn clear_all(&self) {
+        let mut guard = self.state.lock().unwrap();
+        match &mut *guard {
+            GraphGroupState::Local {
+                graph, retained, ..
+            } => {
+                graph.clear();
+                retained.clear();
+            }
+            GraphGroupState::Shared(shared) => {
+                shared.clear_all();
+            }
+        }
+    }
+}
+
+/// Ensure a local graph group exists for a given tensor id, binding it if missing.
+pub fn ensure_local_group_for_tensor(tensor_id: usize) -> Arc<GraphGroupRef> {
+    if let Some(g) = id_group_get(tensor_id) {
+        return g;
+    }
+    let g = GraphGroupRef::new_local_current_thread();
+    id_group_insert(tensor_id, g.clone());
+    g
+}
+
+fn unify_groups_for_inputs(input_ids: &[usize]) -> Arc<GraphGroupRef> {
+    // Gather unique groups, creating locals if missing
+    let mut groups: Vec<Arc<GraphGroupRef>> = Vec::new();
+    for &id in input_ids {
+        let g = id_group_get(id).unwrap_or_else(|| ensure_local_group_for_tensor(id));
+        // Dedup by pointer address (Arc::as_ptr)
+        let gp = Arc::as_ptr(&g) as usize;
+        if !groups.iter().any(|x| Arc::as_ptr(x) as usize == gp) {
+            groups.push(g);
+        }
+    }
+
+    if groups.is_empty() {
+        // No inputs: create a fresh local
+        return GraphGroupRef::new_local_current_thread();
+    }
+
+    if groups.len() == 1 {
+        let g = &groups[0];
+        // If local but owner thread differs, promote to shared
+        if let Some(owner) = g.owner_thread_id() {
+            if owner != std::thread::current().id() {
+                let _ = GraphGroupRef::ensure_shared(g);
+            }
+        }
+        // Ensure all inputs map to this group (idempotent)
+        for &iid in input_ids {
+            id_group_insert(iid, g.clone());
+        }
+        return g.clone();
+    }
+
+    // Multiple groups: if all locals with same owner, merge by moving entries into first local
+    let all_local = groups.iter().all(|g| g.owner_thread_id().is_some());
+    if all_local {
+        let owner0 = groups[0].owner_thread_id();
+        let same_owner = groups.iter().all(|g| g.owner_thread_id() == owner0);
+        if same_owner {
+            // Merge locals into first group's local graph
+            // Lock in id order to avoid deadlocks
+            let mut sorted = groups.clone();
+            sorted.sort_by_key(|g| g.id);
+            let first_id = sorted[0].id;
+            // Acquire locks
+            let mut guards = Vec::with_capacity(sorted.len());
+            for g in &sorted {
+                guards.push(g.state.lock().unwrap());
+            }
+            // Identify destination
+            let mut dest_index = 0usize;
+            for (i, g) in sorted.iter().enumerate() {
+                if g.id == first_id {
+                    dest_index = i;
+                    break;
+                }
+            }
+            // Drain from all non-destination guards into temporaries
+            let mut ops_to_move: Vec<(usize, (Vec<usize>, GradFn))> = Vec::new();
+            let mut grads_to_move: Vec<(usize, Tensor)> = Vec::new();
+            let mut retained_to_move: Vec<usize> = Vec::new();
+
+            for (i, guard) in guards.iter_mut().enumerate() {
+                if i == dest_index {
+                    continue;
+                }
+                if let GraphGroupState::Local {
+                    graph, retained, ..
+                } = &mut **guard
+                {
+                    for (k, v) in graph.operations.drain() {
+                        ops_to_move.push((k, v));
+                    }
+                    for (k, v) in graph.gradients.drain() {
+                        grads_to_move.push((k, v));
+                    }
+                    for id in retained.drain() {
+                        retained_to_move.push(id);
+                    }
+                }
+            }
+
+            // Insert into destination
+            if let GraphGroupState::Local {
+                graph, retained, ..
+            } = &mut *guards[dest_index]
+            {
+                for (k, v) in ops_to_move {
+                    graph.operations.insert(k, v);
+                }
+                for (k, v) in grads_to_move {
+                    graph.gradients.insert(k, v);
+                }
+                for id in retained_to_move {
+                    retained.insert(id);
+                }
+            }
+            // Ensure all inputs are bound to the canonical destination group (sorted[0])
+            let dest_group_arc = sorted[0].clone();
+            for &iid in input_ids {
+                id_group_insert(iid, dest_group_arc.clone());
+            }
+            return dest_group_arc;
+        }
+    }
+
+    // Otherwise promote/merge into a shared canonical
+    // Choose canonical GraphGroupRef: prefer an existing Shared group if present; otherwise use groups[0]
+    let mut canonical_group_ref: Option<Arc<GraphGroupRef>> = None;
+    for g in &groups {
+        let guard = g.state.lock().unwrap();
+        if matches!(*guard, GraphGroupState::Shared(_)) {
+            canonical_group_ref = Some(g.clone());
+            break;
+        }
+    }
+    let canonical_group_ref = canonical_group_ref.unwrap_or_else(|| groups[0].clone());
+    // Ensure canonical has a Shared graph
+    let canonical_shared = GraphGroupRef::ensure_shared(&canonical_group_ref);
+
+    // Migrate all other groups (including groups[0] if it's not canonical) into canonical
+    for g in &groups {
+        if Arc::ptr_eq(g, &canonical_group_ref) {
+            continue;
+        }
+
+        // First handle Shared case by cloning the Arc outside of the guard scope
+        let shared_src: Option<Arc<SharedGradGraph>> = {
+            let guard = g.state.lock().unwrap();
+            if let GraphGroupState::Shared(s) = &*guard {
+                Some(s.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(src_shared) = shared_src {
+            // Drain from src_shared into canonical without holding the state lock
+            for shard in 0..NUM_SHARDS {
+                let mut src_ops = src_shared.operations[shard].write().unwrap();
+                for (k, v) in src_ops.drain() {
+                    canonical_shared.register_operation(k, v.0, v.1);
+                }
+            }
+            for shard in 0..NUM_SHARDS {
+                let mut src_grads = src_shared.gradients[shard].lock().unwrap();
+                for (k, v) in src_grads.drain() {
+                    canonical_shared.accumulate_gradient(k, v);
+                }
+            }
+            let mut src_ret = src_shared.retained.write().unwrap();
+            for id in src_ret.drain() {
+                canonical_shared.mark_retain(id);
+            }
+            // Now rebind this group's state to canonical
+            {
+                let mut guard = g.state.lock().unwrap();
+                *guard = GraphGroupState::Shared(canonical_shared.clone());
+            }
+            continue;
+        }
+
+        // Handle Local case entirely within a short lock scope, then rebind
+        {
+            let mut guard = g.state.lock().unwrap();
+            if let GraphGroupState::Local {
+                graph, retained, ..
+            } = &mut *guard
+            {
+                for (out_id, (inputs, gfn)) in graph.operations.drain() {
+                    canonical_shared.register_operation(out_id, inputs, gfn);
+                }
+                for (tid, grad) in graph.gradients.drain() {
+                    canonical_shared.accumulate_gradient(tid, grad);
+                }
+                for id in retained.drain() {
+                    canonical_shared.mark_retain(id);
+                }
+            } else {
+                // Already handled Shared above
+                continue;
+            }
+        }
+        // Rebind to canonical after draining
+        {
+            let mut guard = g.state.lock().unwrap();
+            *guard = GraphGroupState::Shared(canonical_shared.clone());
+        }
+    }
+
+    // Ensure all inputs are bound to canonical shared group
+    for &iid in input_ids {
+        id_group_insert(iid, canonical_group_ref.clone());
+    }
+    canonical_group_ref
+}
 
 /// Thread-local computation graph for efficient gradient tracking
 ///
@@ -458,6 +956,7 @@ impl GradGraph {
     /// - **Memory cleanup**: Frees the HashMap entry immediately
     /// - **Thread safety**: Thread-local storage eliminates synchronization overhead
     fn take_gradient(&mut self, tensor_id: usize) -> Option<Tensor> {
+        // Correct ownership transfer: remove the entry so it is not re-used on subsequent visits
         self.gradients.remove(&tensor_id)
     }
 
@@ -523,111 +1022,7 @@ impl GradGraph {
         }
     }
 
-    /// Accumulate gradient from an element view into the source tensor at a specific index
-    ///
-    /// This method handles the specialized case of accumulating gradients from element views
-    /// back into their source tensors. Element views create scalar tensors that reference
-    /// individual elements of larger tensors, and their gradients must be accumulated back
-    /// into the appropriate position in the source tensor's gradient.
-    ///
-    /// # Arguments
-    ///
-    /// * `source_id` - Unique identifier of the source tensor that the element view references
-    /// * `element_index` - Linear index of the specific element in the source tensor
-    /// * `element_gradient` - Gradient tensor for the element (typically scalar with shape [1])
-    /// * `source_shape` - Shape dimensions of the source tensor for bounds checking and gradient creation
-    ///
-    /// # Element View Gradient Accumulation
-    ///
-    /// The accumulation process handles element views specially:
-    /// - **Index mapping**: Maps element view gradient back to specific source tensor position
-    /// - **Scalar extraction**: Extracts scalar value from element gradient tensor
-    /// - **Bounds checking**: Validates element index against source tensor dimensions
-    /// - **Direct accumulation**: Adds gradient value directly to the appropriate element
-    ///
-    /// # Gradient Processing
-    ///
-    /// The method processes element gradients through several steps:
-    /// 1. **Value extraction**: Extracts scalar gradient value from element gradient tensor
-    /// 2. **Bounds validation**: Ensures element index is within source tensor bounds
-    /// 3. **Gradient creation**: Creates zero gradient tensor if none exists for source
-    /// 4. **Direct accumulation**: Adds gradient value to specific element position
-    ///
-    /// # Safety and Bounds Checking
-    ///
-    /// The method includes comprehensive safety measures:
-    /// - **Shape validation**: Verifies element index against source tensor total size
-    /// - **Existing gradient validation**: Checks bounds against existing gradient tensor
-    /// - **Panic on bounds violation**: Provides clear error messages for debugging
-    /// - **Memory safety**: Uses unsafe pointer arithmetic only after bounds validation
-    ///
-    /// # Performance Characteristics
-    ///
-    /// - **Time complexity**: O(1) for gradient accumulation, O(n) for gradient creation if needed
-    /// - **Memory usage**: May allocate new gradient tensor if none exists for source
-    /// - **Direct access**: Uses unsafe pointer arithmetic for efficient element access
-    /// - **Bounds checking**: Minimal overhead for safety validation
-    ///
-    /// # Implementation Details
-    ///
-    /// The method uses different strategies based on existing gradient state:
-    /// - **Existing gradient**: Direct element-wise accumulation using unsafe pointer access
-    /// - **New gradient**: Creates zero tensor and sets the specific element value
-    /// - **Memory safety**: All unsafe operations are preceded by comprehensive bounds checking
-    /// - **Error handling**: Clear panic messages for debugging bounds violations
-    fn accumulate_element_gradient(
-        &mut self,
-        source_id: usize,
-        element_index: usize,
-        element_gradient: &Tensor,
-        source_shape: &[usize],
-    ) {
-        // Get or create gradient tensor for the source with the correct shape
-        let gradient_value = if element_gradient.size() == 1 {
-            element_gradient.value()
-        } else {
-            element_gradient.sum().value()
-        };
-
-        // Calculate total size for bounds checking
-        let total_size: usize = source_shape.iter().product();
-
-        // Bounds check to prevent memory safety violations
-        if element_index >= total_size {
-            panic!(
-                "Element index {} out of bounds for tensor with shape {:?} (total size: {})",
-                element_index, source_shape, total_size
-            );
-        }
-
-        match self.gradients.get_mut(&source_id) {
-            Some(existing_grad) => {
-                // Additional bounds check against existing gradient tensor
-                if element_index >= existing_grad.size() {
-                    panic!(
-                        "Element index {} out of bounds for existing gradient tensor of size {}",
-                        element_index,
-                        existing_grad.size()
-                    );
-                }
-                // Accumulate into existing gradient at the specific index
-                unsafe {
-                    let grad_ptr = existing_grad.as_mut_ptr();
-                    *grad_ptr.add(element_index) += gradient_value;
-                }
-            }
-            None => {
-                // Create new gradient tensor with zeros and set the element
-                let mut new_grad = Tensor::zeros(source_shape.to_vec());
-                // Bounds check is already done above, safe to use unsafe here
-                unsafe {
-                    let grad_ptr = new_grad.as_mut_ptr();
-                    *grad_ptr.add(element_index) = gradient_value;
-                }
-                self.gradients.insert(source_id, new_grad);
-            }
-        }
-    }
+    // Removed: accumulate_element_gradient; element views now reuse SliceView GradFn.
 
     /// Clear all stored operations and gradients from the computation graph
     ///
@@ -698,6 +1093,26 @@ thread_local! {
     static GRADTRACK_GRAPH: RefCell<GradGraph> = RefCell::new(GradGraph::new());
 }
 
+// Thread-local set of tensor IDs that should retain their gradients after backward
+thread_local! {
+    static RETAINED_GRAD_IDS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
+}
+
+#[track_caller]
+pub fn mark_retain_grad(tensor_id: usize) {
+    if let Some(g) = id_group_get(tensor_id) {
+        g.mark_retain(tensor_id);
+        return;
+    }
+    RETAINED_GRAD_IDS.with(|set| {
+        set.borrow_mut().insert(tensor_id);
+    });
+}
+
+fn should_retain_grad(tensor_id: usize) -> bool {
+    RETAINED_GRAD_IDS.with(|set| set.borrow().contains(&tensor_id))
+}
+
 /// Retrieve accumulated gradient for a tensor from thread-local gradient storage
 ///
 /// This function provides access to the accumulated gradient for a specific tensor
@@ -754,6 +1169,12 @@ thread_local! {
 /// - **Option handling**: Naturally handles both present and absent gradients
 #[track_caller]
 pub fn get_accumulated_gradient(tensor_id: usize) -> Option<Tensor> {
+    if let Some(g) = id_group_get(tensor_id) {
+        if let Some(grad) = g.get_gradient_value(tensor_id) {
+            return Some(grad);
+        }
+    }
+
     GRADTRACK_GRAPH.with(|graph| graph.borrow().get_gradient(tensor_id).cloned())
 }
 
@@ -817,6 +1238,84 @@ pub fn clear_gradients() {
     });
 }
 
+/// Clear the accumulated gradient for a specific tensor id across all storages
+///
+/// Removes the stored gradient for `tensor_id` from its bound graph group (local/shared)
+/// if present, and also from the thread-local graph as a fallback. This is used by
+/// optimizers' zero_grad logic to ensure per-parameter gradients are fully cleared.
+#[track_caller]
+pub fn clear_gradient_for_tensor(tensor_id: usize) {
+    if let Some(g) = id_group_get(tensor_id) {
+        // Ignore result; we only need to remove if present
+        let _ = g.take_gradient(tensor_id);
+    }
+    // Also clear from TLS graph in case this tensor was tracked there
+    GRADTRACK_GRAPH.with(|graph| {
+        let _ = graph.borrow_mut().take_gradient(tensor_id);
+    });
+}
+
+/// Clear the thread-local graph (alias of clear_gradients)
+#[track_caller]
+pub fn clear_local_graph() {
+    clear_gradients();
+}
+
+/// Clear the entire graph (local or shared) associated with a specific tensor id
+#[track_caller]
+pub fn clear_graph_for_tensor(tensor_id: usize) {
+    if let Some(g) = id_group_get(tensor_id) {
+        g.clear_all();
+    }
+}
+
+/// If the tensor's group is shared, clear that shared graph; otherwise no-op
+#[track_caller]
+pub fn clear_shared_graph_for_tensor(tensor_id: usize) {
+    if let Some(g) = id_group_get(tensor_id) {
+        let guard = g.state.lock().unwrap();
+        if let GraphGroupState::Shared(shared) = &*guard {
+            shared.clear_all();
+        }
+    }
+}
+
+/// Clear all known shared graphs by scanning the global id→group registry
+#[track_caller]
+pub fn clear_all_shared_graphs() {
+    use std::collections::HashSet;
+
+    // Collect unique GraphGroupRef arcs without holding shard locks during clear
+    let mut unique_groups: Vec<Arc<GraphGroupRef>> = Vec::new();
+    let mut seen: HashSet<usize> = HashSet::new();
+
+    let shards = id_group_shards();
+    for shard in shards.iter() {
+        let map = shard.lock().unwrap();
+        for g in map.values() {
+            let key = Arc::as_ptr(g) as usize;
+            if seen.insert(key) {
+                unique_groups.push(g.clone());
+            }
+        }
+    }
+
+    // Clear only the shared ones
+    for g in unique_groups {
+        let guard = g.state.lock().unwrap();
+        if let GraphGroupState::Shared(shared) = &*guard {
+            shared.clear_all();
+        }
+        drop(guard);
+    }
+}
+
+/// Clear all known graphs: current thread-local graph and all shared graphs
+#[track_caller]
+pub fn clear_all_graphs_known() {
+    clear_local_graph();
+    clear_all_shared_graphs();
+}
 /// Primary gradient computation engine for automatic differentiation
 ///
 /// The GradEngine provides the core implementation of reverse-mode automatic differentiation
@@ -963,85 +1462,99 @@ impl GradEngine {
     /// - **Memory management**: Proper cleanup and memory reuse throughout the process
     #[track_caller]
     pub fn backward(tensor: &mut Tensor, grad_output: Option<Tensor>) {
-        // Initialize gradient if not provided (assumes scalar output)
+        // Determine graph group for this tensor
+        if let Some(group) = id_group_get(tensor.id()) {
+            // Initialize gradient if not provided (assumes scalar output)
+            let initial_grad = grad_output.unwrap_or_else(|| {
+                let mut ones = Tensor::ones(tensor.shape().dims().to_vec());
+                ones.set_requires_grad(false);
+                ones
+            });
+            tensor.accumulate_grad(initial_grad.clone());
+            group.store_gradient(tensor.id(), initial_grad.clone());
+
+            let mut worklist: Vec<usize> = Vec::with_capacity(128);
+            worklist.push(tensor.id());
+            while let Some(node_id) = worklist.pop() {
+                let operation_info = group.get_operation(node_id);
+                if let Some((input_ids, grad_fn)) = operation_info {
+                    let current_grad = group.take_gradient(node_id);
+                    if current_grad.is_none() {
+                        continue;
+                    }
+                    let current_grad = current_grad.unwrap();
+                    if group.should_retain(node_id) {
+                        group.store_gradient(node_id, current_grad.clone());
+                    }
+                    let input_grads = grad_fn.apply(&current_grad);
+                    for (idx, &input_id) in input_ids.iter().enumerate() {
+                        if let Some(Some(input_grad)) = input_grads.get(idx) {
+                            // Rebind input id to this (possibly shared) group to ensure
+                            // accumulated gradients are discoverable across threads.
+                            id_group_insert(input_id, group.clone());
+                            group.accumulate_gradient(input_id, input_grad.clone());
+                            let has_op = group.get_operation(input_id).is_some();
+                            if has_op {
+                                worklist.push(input_id);
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // Fallback to TLS graph for backward if no group mapping exists
         let initial_grad = grad_output.unwrap_or_else(|| {
-            let mut ones = Tensor::ones(tensor.shape().dims.clone());
-            ones.set_requires_grad(false); // Gradients don't need gradients
+            let mut ones = Tensor::ones(tensor.shape().dims().to_vec());
+            ones.set_requires_grad(false);
             ones
         });
-
-        // Set the gradient for this tensor
         tensor.accumulate_grad(initial_grad.clone());
-
-        // Store initial gradient in thread-local graph
         GRADTRACK_GRAPH.with(|graph| {
             graph
                 .borrow_mut()
                 .store_gradient(tensor.id(), initial_grad.clone());
         });
 
-        // Iterative propagation using a worklist to ensure proper accumulation
         let mut worklist: Vec<usize> = Vec::with_capacity(128);
         worklist.push(tensor.id());
-
         while let Some(node_id) = worklist.pop() {
-            // Get operation info first; if none, this is a leaf, keep its gradient intact
             let operation_info =
                 GRADTRACK_GRAPH.with(|graph| graph.borrow().get_operation(node_id).cloned());
             if let Some((input_ids, grad_fn)) = operation_info {
-                // Take the currently accumulated gradient for this node
                 let current_grad =
                     GRADTRACK_GRAPH.with(|graph| graph.borrow_mut().take_gradient(node_id));
                 if current_grad.is_none() {
                     continue;
                 }
                 let current_grad = current_grad.unwrap();
-                // Compute input gradients
+                if should_retain_grad(node_id) {
+                    GRADTRACK_GRAPH.with(|graph| {
+                        graph
+                            .borrow_mut()
+                            .store_gradient(node_id, current_grad.clone());
+                    });
+                }
                 let input_grads = grad_fn.apply(&current_grad);
-
-                // Accumulate into inputs and push them to worklist
                 for (idx, &input_id) in input_ids.iter().enumerate() {
                     if let Some(Some(input_grad)) = input_grads.get(idx) {
-                        // Check if this is an ElementView operation that needs special handling
-                        match &grad_fn {
-                            GradFn::ElementView {
-                                source_id,
-                                element_index,
-                                source_shape,
-                            } => {
-                                // For ElementView, accumulate directly into the source tensor at the specific index
-                                // Use the stored source shape for proper gradient accumulation
-                                GRADTRACK_GRAPH.with(|graph| {
-                                    graph.borrow_mut().accumulate_element_gradient(
-                                        *source_id,
-                                        *element_index,
-                                        input_grad,
-                                        source_shape,
-                                    );
-                                });
-
-                                // Check if the source tensor has operations to propagate further
-                                let has_op = GRADTRACK_GRAPH.with(|graph| {
-                                    graph.borrow().get_operation(*source_id).is_some()
-                                });
-                                if has_op {
-                                    worklist.push(*source_id);
-                                }
-                            }
-                            _ => {
-                                // Regular gradient accumulation for non-ElementView operations
-                                GRADTRACK_GRAPH.with(|graph| {
-                                    graph
-                                        .borrow_mut()
-                                        .accumulate_gradient(input_id, input_grad.clone());
-                                });
-                                // Only push if this input has an operation to propagate further
-                                let has_op = GRADTRACK_GRAPH
-                                    .with(|graph| graph.borrow().get_operation(input_id).is_some());
-                                if has_op {
-                                    worklist.push(input_id);
-                                }
-                            }
+                        // If input tensor has a shared group mapping (due to cross-thread usage),
+                        // use it so gradients are placed in the shared graph, not TLS.
+                        if let Some(g) = id_group_get(input_id) {
+                            id_group_insert(input_id, g.clone());
+                            g.accumulate_gradient(input_id, input_grad.clone());
+                        } else {
+                            GRADTRACK_GRAPH.with(|graph| {
+                                graph
+                                    .borrow_mut()
+                                    .accumulate_gradient(input_id, input_grad.clone());
+                            });
+                        }
+                        let has_op = GRADTRACK_GRAPH
+                            .with(|graph| graph.borrow().get_operation(input_id).is_some());
+                        if has_op {
+                            worklist.push(input_id);
                         }
                     }
                 }
@@ -1112,10 +1625,113 @@ impl GradEngine {
     /// - **Memory efficiency**: Uses pre-allocated HashMap to minimize allocation overhead
     #[track_caller]
     pub fn register_operation(output_id: usize, input_ids: Vec<usize>, grad_fn: GradFn) {
-        GRADTRACK_GRAPH.with(|graph| {
-            graph
-                .borrow_mut()
-                .register_operation(output_id, input_ids, grad_fn);
+        // Implicit unification across inputs; bind output to unified group.
+        let group = if input_ids.is_empty() {
+            // No inputs: create or reuse a local group for output
+            ensure_local_group_for_tensor(output_id)
+        } else {
+            let g = unify_groups_for_inputs(&input_ids);
+            // Rebind all input ids to the unified canonical group to ensure consistent
+            // gradient storage/retrieval across threads and after promotions/merges.
+            for &iid in &input_ids {
+                id_group_insert(iid, g.clone());
+            }
+            g
+        };
+
+        // Bind output id to this group and register op
+        id_group_insert(output_id, group.clone());
+        group.register_operation(output_id, input_ids, grad_fn);
+    }
+}
+
+#[cfg(test)]
+mod clearing_tests {
+    use super::*;
+    use crate::tensor::core::memory::with_no_mem_pool;
+    use crate::tensor::Tensor;
+
+    fn build_simple_add_graph() -> (Tensor, Tensor, Tensor) {
+        let a = Tensor::ones(vec![2, 3]).with_requires_grad();
+        let b = Tensor::ones(vec![2, 3]).with_requires_grad();
+        let out = a.add_tensor(&b);
+        (a, b, out)
+    }
+
+    #[test]
+    fn test_clear_local_graph_clears_tls_gradients() {
+        // Create a tensor without binding it to any graph group, then call backward.
+        // This forces gradient storage into the TLS graph (no group mapping).
+        let mut t = Tensor::ones(vec![2, 3]);
+        assert!(id_group_get(t.id()).is_none());
+        t.backward(None);
+
+        assert!(get_accumulated_gradient(t.id()).is_some());
+
+        clear_local_graph();
+
+        assert!(get_accumulated_gradient(t.id()).is_none());
+    }
+
+    #[test]
+    fn test_clear_gradient_for_tensor_only_clears_target() {
+        let (a, b, out) = build_simple_add_graph();
+        let mut loss = out.sum();
+        loss.backward(None);
+
+        assert!(get_accumulated_gradient(a.id()).is_some());
+        assert!(get_accumulated_gradient(b.id()).is_some());
+
+        clear_gradient_for_tensor(a.id());
+
+        assert!(get_accumulated_gradient(a.id()).is_none());
+        assert!(get_accumulated_gradient(b.id()).is_some());
+    }
+
+    #[test]
+    fn test_clear_graph_for_tensor_local_group() {
+        let (a, b, out) = build_simple_add_graph();
+        let mut loss = out.sum();
+        loss.backward(None);
+
+        assert!(get_accumulated_gradient(a.id()).is_some());
+        assert!(get_accumulated_gradient(b.id()).is_some());
+
+        clear_graph_for_tensor(a.id());
+
+        // Entire group cleared: both a and b grads should be gone
+        assert!(get_accumulated_gradient(a.id()).is_none());
+        assert!(get_accumulated_gradient(b.id()).is_none());
+    }
+
+    #[test]
+    fn test_clear_shared_graph_for_tensor_cross_thread() {
+        // Build a shared graph by performing ops on separate threads and merging results
+        with_no_mem_pool(|| {
+            let a = std::sync::Arc::new(Tensor::ones(vec![8, 4]).with_requires_grad());
+            let b = std::sync::Arc::new(Tensor::ones(vec![8, 4]).with_requires_grad());
+
+            let a1 = a.clone();
+            let h1 = std::thread::spawn(move || with_no_mem_pool(|| a1.add_scalar(0.0)));
+
+            let b1 = b.clone();
+            let h2 = std::thread::spawn(move || with_no_mem_pool(|| b1.add_scalar(0.0)));
+
+            let z1 = h1.join().unwrap();
+            let z2 = h2.join().unwrap();
+            let out = z1.add_tensor(&z2);
+            let mut loss = out.sum();
+            loss.backward(None);
+
+            assert!(get_accumulated_gradient(a.id()).is_some());
+            assert!(get_accumulated_gradient(b.id()).is_some());
+
+            // Clear the shared graph tied to `a`
+            clear_shared_graph_for_tensor(a.id());
+
+            // After clearing the shared graph, grads for both should be gone
+            assert!(get_accumulated_gradient(a.id()).is_none());
+            assert!(get_accumulated_gradient(b.id()).is_none());
         });
     }
 }

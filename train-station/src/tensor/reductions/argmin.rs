@@ -56,7 +56,7 @@ impl Tensor {
             }
         } else {
             // Stride-aware path for non-contiguous tensors
-            let dims = self.shape().dims.clone();
+            let dims = self.shape().dims().to_vec();
             for flat_idx in 0..self.size() {
                 // Convert flat index to multi-dimensional coordinates
                 let mut coords = vec![0; dims.len()];
@@ -116,7 +116,7 @@ impl Tensor {
     ///
     /// // Find minimum indices along dimension 1 (columns), keeping the dimension
     /// let indices = tensor.argmin_dim(1, true);
-    /// assert_eq!(indices.shape().dims, vec![2, 1]);
+    /// assert_eq!(indices.shape().dims(), vec![2, 1]);
     /// assert_eq!(indices.get(&[0, 0]), 1.0); // -2.0 is at index 1 in first row
     /// assert_eq!(indices.get(&[1, 0]), 2.0); // -3.0 is at index 2 in second row
     /// ```
@@ -128,7 +128,7 @@ impl Tensor {
     ///
     /// // Find minimum indices along dimension 1 (columns), removing the dimension
     /// let indices = tensor.argmin_dim(1, false);
-    /// assert_eq!(indices.shape().dims, vec![2]);
+    /// assert_eq!(indices.shape().dims(), vec![2]);
     /// assert_eq!(indices.get(&[0]), 1.0); // -2.0 is at index 1 in first row
     /// assert_eq!(indices.get(&[1]), 2.0); // -3.0 is at index 2 in second row
     /// ```
@@ -140,7 +140,7 @@ impl Tensor {
     ///
     /// // Find minimum index in a 1D tensor
     /// let index = tensor.argmin_dim(0, false);
-    /// assert_eq!(index.shape().dims, vec![1]);
+    /// assert_eq!(index.shape().dims(), vec![1]);
     /// assert_eq!(index.get(&[0]), 0.0); // 1.0 is at index 0
     /// ```
     #[track_caller]
@@ -153,7 +153,7 @@ impl Tensor {
             rank
         );
 
-        let in_dims = self.shape().dims.clone();
+        let in_dims = self.shape().dims().to_vec();
         let reduce_size = in_dims[dim];
         assert!(reduce_size > 0, "cannot argmin over empty dimension");
 
@@ -243,7 +243,7 @@ mod tests {
         let x = Tensor::from_slice(&[3.0, -2.0, 5.0, -1.0], vec![4]).unwrap();
         let idx = x.argmin();
         assert_eq!(idx.get(&[0]), 1.0); // -2.0 is at index 1
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         let x = Tensor::from_slice(&[3.0, -2.0, 5.0, -1.0, 0.0, -3.0], vec![2, 3]).unwrap();
         let idx = x.argmin();
         assert_eq!(idx.get(&[0]), 5.0); // -3.0 is at flat index 5
-        assert_eq!(idx.shape().dims, vec![1]);
+        assert_eq!(idx.shape().dims(), vec![1]);
     }
 
     #[test]
@@ -283,19 +283,19 @@ mod tests {
 
         // Along dimension 1 (columns), keepdim=true
         let idx1 = x.argmin_dim(1, true);
-        assert_eq!(idx1.shape().dims, vec![2, 1]);
+        assert_eq!(idx1.shape().dims(), vec![2, 1]);
         assert_eq!(idx1.get(&[0, 0]), 1.0); // Row 0: -2.0 is at column index 1
         assert_eq!(idx1.get(&[1, 0]), 2.0); // Row 1: -3.0 is at column index 2
 
         // Along dimension 1 (columns), keepdim=false
         let idx1_no_keep = x.argmin_dim(1, false);
-        assert_eq!(idx1_no_keep.shape().dims, vec![2]);
+        assert_eq!(idx1_no_keep.shape().dims(), vec![2]);
         assert_eq!(idx1_no_keep.get(&[0]), 1.0);
         assert_eq!(idx1_no_keep.get(&[1]), 2.0);
 
         // Along dimension 0 (rows), keepdim=true
         let idx0 = x.argmin_dim(0, true);
-        assert_eq!(idx0.shape().dims, vec![1, 3]);
+        assert_eq!(idx0.shape().dims(), vec![1, 3]);
         assert_eq!(idx0.get(&[0, 0]), 1.0); // Column 0: -1.0 is at row index 1
         assert_eq!(idx0.get(&[0, 1]), 0.0); // Column 1: -2.0 is at row index 0
         assert_eq!(idx0.get(&[0, 2]), 1.0); // Column 2: -3.0 is at row index 1
@@ -318,7 +318,7 @@ mod tests {
 
         // Along dimension 2 (innermost), keepdim=false
         let idx2 = x.argmin_dim(2, false);
-        assert_eq!(idx2.shape().dims, vec![2, 2]);
+        assert_eq!(idx2.shape().dims(), vec![2, 2]);
         assert_eq!(idx2.get(&[0, 0]), 1.0); // [1.0, -2.0] -> min at index 1
         assert_eq!(idx2.get(&[0, 1]), 0.0); // [3.0, 4.0] -> min at index 0
         assert_eq!(idx2.get(&[1, 0]), 0.0); // [-5.0, 6.0] -> min at index 0
@@ -342,11 +342,11 @@ mod tests {
 
         // Test along different dimensions
         let idx_dim0 = x_2d.argmin_dim(0, false);
-        assert_eq!(idx_dim0.shape().dims, vec![40]);
+        assert_eq!(idx_dim0.shape().dims(), vec![40]);
         assert_eq!(idx_dim0.get(&[0]), 0.0); // Column 0: minimum at row 0
 
         let idx_dim1 = x_2d.argmin_dim(1, false);
-        assert_eq!(idx_dim1.shape().dims, vec![25]);
+        assert_eq!(idx_dim1.shape().dims(), vec![25]);
         assert_eq!(idx_dim1.get(&[0]), 0.0); // Row 0: minimum at column 0
     }
 
@@ -363,14 +363,14 @@ mod tests {
 
         // Test argmin along dimension 3 (innermost)
         let idx3 = x.argmin_dim(3, false);
-        assert_eq!(idx3.shape().dims, vec![2, 3, 4]);
+        assert_eq!(idx3.shape().dims(), vec![2, 3, 4]);
         // Each slice along dim 3 has values decreasing, so min is always at index 4
         assert_eq!(idx3.get(&[0, 0, 0]), 4.0);
         assert_eq!(idx3.get(&[1, 2, 3]), 4.0);
 
         // Test argmin along dimension 0 (outermost)
         let idx0 = x.argmin_dim(0, false);
-        assert_eq!(idx0.shape().dims, vec![3, 4, 5]);
+        assert_eq!(idx0.shape().dims(), vec![3, 4, 5]);
         // For each position, the minimum is in the second batch (index 1)
         assert_eq!(idx0.get(&[0, 0, 0]), 1.0);
         assert_eq!(idx0.get(&[2, 3, 4]), 1.0);
@@ -419,13 +419,13 @@ mod tests {
         //  [-2.0, 0.0, -2.0]]
 
         let idx_dim0 = x_2d.argmin_dim(0, false);
-        assert_eq!(idx_dim0.shape().dims, vec![3]);
+        assert_eq!(idx_dim0.shape().dims(), vec![3]);
         assert_eq!(idx_dim0.get(&[0]), 1.0); // Column 0: min(-2.0 vs 3.0) -> row 1
         assert_eq!(idx_dim0.get(&[1]), 0.0); // Column 1: min(-2.0 vs 0.0) -> row 0
         assert_eq!(idx_dim0.get(&[2]), 1.0); // Column 2: min(5.0 vs -2.0) -> row 1
 
         let idx_dim1 = x_2d.argmin_dim(1, false);
-        assert_eq!(idx_dim1.shape().dims, vec![2]);
+        assert_eq!(idx_dim1.shape().dims(), vec![2]);
         assert_eq!(idx_dim1.get(&[0]), 1.0); // Row 0: min of [3.0, -2.0, 5.0] -> col 1
         assert_eq!(idx_dim1.get(&[1]), 0.0); // Row 1: min of [-2.0, 0.0, -2.0] -> col 0 (first)
     }
@@ -441,14 +441,14 @@ mod tests {
 
         // Test argmin along different dimensions
         let idx_dim0 = x.argmin_dim(0, false);
-        assert_eq!(idx_dim0.shape().dims, vec![6, 1]);
+        assert_eq!(idx_dim0.shape().dims(), vec![6, 1]);
 
         let idx_dim1 = x.argmin_dim(1, false);
-        assert_eq!(idx_dim1.shape().dims, vec![1, 1]);
+        assert_eq!(idx_dim1.shape().dims(), vec![1, 1]);
         assert_eq!(idx_dim1.get(&[0, 0]), 4.0); // -8.0 at position 4 along dim 1
 
         let idx_dim2 = x.argmin_dim(2, false);
-        assert_eq!(idx_dim2.shape().dims, vec![1, 6]);
+        assert_eq!(idx_dim2.shape().dims(), vec![1, 6]);
     }
 
     #[test]
@@ -471,7 +471,7 @@ mod tests {
 
         // Argmin along dimension 1 (channels)
         let idx_dim1 = x.argmin_dim(1, false);
-        assert_eq!(idx_dim1.shape().dims, vec![2, 2, 2]);
+        assert_eq!(idx_dim1.shape().dims(), vec![2, 2, 2]);
         // At position [0,0,0]: min(1.0, 5.0, -1.0) = -1.0 at channel 2
         assert_eq!(idx_dim1.get(&[0, 0, 0]), 2.0);
         // At position [1,1,1]: min(14.0, 18.0, -5.0) = -5.0 at channel 2
@@ -490,7 +490,7 @@ mod tests {
         // Transposed: [[1.0, 4.0],
         //              [3.0, 0.0],
         //              [2.0, -5.0]]
-        assert_eq!(x_t.shape().dims, vec![3, 2]);
+        assert_eq!(x_t.shape().dims(), vec![3, 2]);
         assert!(!x_t.is_contiguous()); // Should be a view
 
         // Test global argmin on transposed view
@@ -499,13 +499,13 @@ mod tests {
 
         // Test argmin along dim=0 of transposed tensor
         let idx0 = x_t.argmin_dim(0, false);
-        assert_eq!(idx0.shape().dims, vec![2]);
+        assert_eq!(idx0.shape().dims(), vec![2]);
         assert_eq!(idx0.get(&[0]), 0.0); // col 0: [1.0, 3.0, 2.0] -> min 1.0 at index 0
         assert_eq!(idx0.get(&[1]), 2.0); // col 1: [4.0, 0.0, -5.0] -> min -5.0 at index 2
 
         // Test argmin along dim=1 of transposed tensor
         let idx1 = x_t.argmin_dim(1, false);
-        assert_eq!(idx1.shape().dims, vec![3]);
+        assert_eq!(idx1.shape().dims(), vec![3]);
         assert_eq!(idx1.get(&[0]), 0.0); // row 0: [1.0, 4.0] -> min 1.0 at index 0
         assert_eq!(idx1.get(&[1]), 1.0); // row 1: [3.0, 0.0] -> min 0.0 at index 1
         assert_eq!(idx1.get(&[2]), 1.0); // row 2: [2.0, -5.0] -> min -5.0 at index 1
@@ -525,20 +525,20 @@ mod tests {
         // Select middle row (creates a view)
         let middle_row = x.select(0, 1);
         // [5, -6, 7, 8]
-        assert_eq!(middle_row.shape().dims, vec![4]);
+        assert_eq!(middle_row.shape().dims(), vec![4]);
 
         let idx = middle_row.argmin();
         assert_eq!(idx.get(&[0]), 1.0); // index 1 has value -6.0
 
         // Test argmin_dim on 1D slice (should work the same as global argmin)
         let idx_dim = middle_row.argmin_dim(0, false);
-        assert_eq!(idx_dim.shape().dims, vec![1]);
+        assert_eq!(idx_dim.shape().dims(), vec![1]);
         assert_eq!(idx_dim.get(&[0]), 1.0);
 
         // Test with column slice
         let second_col = x.select(1, 1);
         // [2, -6, 10]
-        assert_eq!(second_col.shape().dims, vec![3]);
+        assert_eq!(second_col.shape().dims(), vec![3]);
         let idx_col = second_col.argmin();
         assert_eq!(idx_col.get(&[0]), 1.0); // -6.0 at index 1
     }
@@ -553,7 +553,7 @@ mod tests {
 
         // Permute to [4, 2, 3] (swap dims 0 and 2)
         let x_perm = x.permute(vec![2, 1, 0]);
-        assert_eq!(x_perm.shape().dims, vec![4, 3, 2]);
+        assert_eq!(x_perm.shape().dims(), vec![4, 3, 2]);
         assert!(!x_perm.is_contiguous());
 
         // Global argmin should still find the minimum value (1.0)
@@ -562,13 +562,13 @@ mod tests {
 
         // Test argmin along each dimension of permuted tensor
         let idx0 = x_perm.argmin_dim(0, false); // [3, 2]
-        assert_eq!(idx0.shape().dims, vec![3, 2]);
+        assert_eq!(idx0.shape().dims(), vec![3, 2]);
 
         let idx1 = x_perm.argmin_dim(1, false); // [4, 2]
-        assert_eq!(idx1.shape().dims, vec![4, 2]);
+        assert_eq!(idx1.shape().dims(), vec![4, 2]);
 
         let idx2 = x_perm.argmin_dim(2, false); // [4, 3]
-        assert_eq!(idx2.shape().dims, vec![4, 3]);
+        assert_eq!(idx2.shape().dims(), vec![4, 3]);
 
         // Verify some specific values
         // Since values decrease from 24.0 to 1.0, the permuted tensor should have
@@ -586,7 +586,7 @@ mod tests {
         // First transpose, then select a row
         let x_t = x.transpose(0, 1); // [3, 4]
         let row = x_t.select(0, 1); // Select second row: [2, 5, -8, 11]
-        assert_eq!(row.shape().dims, vec![4]);
+        assert_eq!(row.shape().dims(), vec![4]);
 
         let idx = row.argmin();
         assert_eq!(idx.get(&[0]), 2.0); // index 2 has value -8.0
@@ -609,13 +609,13 @@ mod tests {
 
         // Test dimension-wise argmin on permuted tensor
         let idx0 = x_perm.argmin_dim(0, false);
-        assert_eq!(idx0.shape().dims, vec![3, 4]);
+        assert_eq!(idx0.shape().dims(), vec![3, 4]);
 
         let idx1 = x_perm.argmin_dim(1, false);
-        assert_eq!(idx1.shape().dims, vec![5, 4]);
+        assert_eq!(idx1.shape().dims(), vec![5, 4]);
 
         let idx2 = x_perm.argmin_dim(2, false);
-        assert_eq!(idx2.shape().dims, vec![5, 3]);
+        assert_eq!(idx2.shape().dims(), vec![5, 3]);
     }
 
     #[test]
@@ -632,7 +632,7 @@ mod tests {
         let x_subset = x_t.select(0, 5); // Select last row: [6, 12, 18, -24]
 
         // Note: select might create contiguous tensors in some cases, so we don't assert non-contiguous
-        assert_eq!(x_subset.shape().dims, vec![4]);
+        assert_eq!(x_subset.shape().dims(), vec![4]);
 
         let idx = x_subset.argmin();
         assert_eq!(idx.get(&[0]), 3.0); // -24.0 at index 3
@@ -682,7 +682,7 @@ mod tests {
         };
         let min_val_view = unsafe {
             let flat_idx = idx_view.get(&[0]) as usize;
-            let dims = x_t.shape().dims.clone();
+            let dims = x_t.shape().dims();
             let mut coords = vec![0; dims.len()];
             let mut tmp = flat_idx;
             for k in (0..dims.len()).rev() {
@@ -701,8 +701,8 @@ mod tests {
         let idx_dim1_trans = x_t.argmin_dim(1, false); // argmin along columns -> [4] (min of each row)
 
         // These should give the same results since we're reducing along corresponding dims
-        assert_eq!(idx_dim0_orig.shape().dims, vec![4]);
-        assert_eq!(idx_dim1_trans.shape().dims, vec![4]);
+        assert_eq!(idx_dim0_orig.shape().dims(), vec![4]);
+        assert_eq!(idx_dim1_trans.shape().dims(), vec![4]);
 
         // Original columns vs transposed rows should match
         assert_eq!(idx_dim0_orig.get(&[0]), 1.0); // col 0: min(5,3,6) = 3 at row 1
@@ -730,7 +730,7 @@ mod tests {
     fn test_argmin_dim() {
         let x = Tensor::from_slice(&[3.0, -2.0, 5.0, -1.0, 0.0, -3.0], vec![2, 3]).unwrap();
         let idx0 = x.argmin_dim(1, true);
-        assert_eq!(idx0.shape().dims, vec![2, 1]);
+        assert_eq!(idx0.shape().dims(), vec![2, 1]);
         assert_eq!(idx0.get(&[0, 0]), 1.0);
         assert_eq!(idx0.get(&[1, 0]), 2.0);
     }

@@ -58,7 +58,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-2.0, -1.0, 0.0, 1.0], vec![4]).unwrap();
     /// let b = a.leaky_relu(0.1);
-    /// assert_eq!(b.shape().dims, vec![4]);
+    /// assert_eq!(b.shape().dims(), vec![4]);
     /// assert!((b.get(&[0]) - (-0.2)).abs() < 1e-6); // -2.0 * 0.1 = -0.2
     /// assert!((b.get(&[1]) - (-0.1)).abs() < 1e-6); // -1.0 * 0.1 = -0.1
     /// assert_eq!(b.get(&[2]), 0.0); // max(0, 0) = 0
@@ -72,7 +72,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[-1.0, 0.0, 1.0], vec![3]).unwrap();
     /// let b = a.leaky_relu(0.01); // Smaller negative slope
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert!((b.get(&[0]) - (-0.01)).abs() < 1e-6); // -1.0 * 0.01 = -0.01
     /// assert_eq!(b.get(&[1]), 0.0); // max(0, 0) = 0
     /// assert_eq!(b.get(&[2]), 1.0); // max(0, 1) = 1
@@ -123,7 +123,7 @@ impl Tensor {
     /// unrolling for maximum throughput.
     #[inline]
     pub(crate) fn leaky_relu_optimized(&self, negative_slope: f32) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;

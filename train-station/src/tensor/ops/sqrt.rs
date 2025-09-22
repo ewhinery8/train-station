@@ -74,7 +74,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[1.0, 4.0, 9.0], vec![3]).unwrap();
     /// let b = a.sqrt();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 1.0); // sqrt(1.0) = 1.0
     /// assert_eq!(b.get(&[1]), 2.0); // sqrt(4.0) = 2.0
     /// assert_eq!(b.get(&[2]), 3.0); // sqrt(9.0) = 3.0
@@ -87,7 +87,7 @@ impl Tensor {
     ///
     /// let a = Tensor::from_slice(&[0.0, 1.0, 16.0], vec![3]).unwrap();
     /// let b = a.sqrt();
-    /// assert_eq!(b.shape().dims, vec![3]);
+    /// assert_eq!(b.shape().dims(), vec![3]);
     /// assert_eq!(b.get(&[0]), 0.0); // sqrt(0.0) = 0.0
     /// assert_eq!(b.get(&[1]), 1.0); // sqrt(1.0) = 1.0
     /// assert_eq!(b.get(&[2]), 4.0); // sqrt(16.0) = 4.0
@@ -135,7 +135,7 @@ impl Tensor {
     /// parallelism.
     #[inline]
     pub(crate) fn sqrt_optimized(&self) -> Tensor {
-        let mut output = Tensor::new(self.shape().dims.clone());
+        let mut output = Tensor::new(self.shape().dims().to_vec());
 
         if self.size() == 0 {
             return output;

@@ -33,7 +33,7 @@ impl TensorValidator {
         let mut our_loss = our_combined.sum(); // Should be a scalar
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(grad) => grad,
             None => {
                 return ComparisonResult::failure("Our source tensor has no gradient".to_string())
@@ -216,7 +216,7 @@ impl TensorValidator {
         let mut our_loss = our_final.sum();
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(grad) => grad,
             None => {
                 return ComparisonResult::failure("Our source tensor has no gradient".to_string())
@@ -306,7 +306,7 @@ impl TensorValidator {
 
         // Use iterator to process elements and collect results
         let our_processed: Tensor = our_source
-            .iter()
+            .iter_elements()
             .take(4) // Take first 4 elements
             .map(|elem| elem.mul_scalar(2.0).add_scalar(1.0))
             .collect();
@@ -314,7 +314,7 @@ impl TensorValidator {
         let mut our_loss = our_processed.sum();
         our_loss.backward(None);
 
-        let our_grad = match our_source.grad_by_value() {
+        let our_grad = match our_source.grad_owned() {
             Some(grad) => grad,
             None => {
                 return ComparisonResult::failure("Our source tensor has no gradient".to_string())

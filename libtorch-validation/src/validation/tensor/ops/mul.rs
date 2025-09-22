@@ -136,7 +136,7 @@ impl TensorValidator {
         let mut our_result = our_tensor.mul_scalar(scalar);
         our_result.backward(None);
 
-        let our_grad = match our_tensor.grad_by_value() {
+        let our_grad = match our_tensor.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor has no gradient".to_string()),
         };
@@ -186,11 +186,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.mul_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -374,11 +374,11 @@ impl TensorValidator {
         let mut our_result = our_tensor_a.mul_tensor(&our_tensor_b);
         our_result.backward(None);
 
-        let our_grad_a = match our_tensor_a.grad_by_value() {
+        let our_grad_a = match our_tensor_a.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor A has no gradient".to_string()),
         };
-        let our_grad_b = match our_tensor_b.grad_by_value() {
+        let our_grad_b = match our_tensor_b.grad_owned() {
             Some(grad) => grad,
             None => return ComparisonResult::failure("Our tensor B has no gradient".to_string()),
         };
@@ -653,6 +653,70 @@ mod tests {
                 result.passed,
                 "Broadcasting mul {:?} * {:?}: {}",
                 shape1, shape2, result.details
+            );
+        }
+    }
+
+    /// Additional forward broadcasting coverage for multiplication
+    #[test]
+    fn test_mul_broadcast_forward_additional() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_mul_tensor_broadcasting(&a, &b);
+            assert!(
+                res.passed,
+                "mul forward broadcast {:?}*{:?}: {}",
+                a, b, res.details
+            );
+        }
+    }
+
+    /// Additional gradient broadcasting coverage for multiplication
+    #[test]
+    fn test_mul_broadcast_gradients_additional() {
+        let validator = TensorValidator::new(1e-6, 1e-8);
+
+        let cases = vec![
+            // Leading-ones and right-aligned broadcasting
+            (vec![1, 3, 1], vec![2, 1, 4]),
+            (vec![2, 1, 4], vec![1, 3, 1]),
+            (vec![1, 1, 1, 1], vec![2, 3, 4, 5]),
+            (vec![2, 3, 4, 5], vec![1, 1, 1, 1]),
+            // Higher-rank asymmetry
+            (vec![1, 2, 1, 4, 1], vec![2, 1, 3, 1, 5]),
+            (vec![2, 1, 3, 1, 5], vec![1, 2, 1, 4, 1]),
+            // 1D with ND broadcasts
+            (vec![7], vec![2, 3, 7]),
+            (vec![2, 3, 7], vec![7]),
+            // 2D row/col with ND
+            (vec![1, 9], vec![4, 7, 9]),
+            (vec![9, 1], vec![4, 9, 7]),
+        ];
+
+        for (a, b) in cases {
+            let res = validator.test_mul_tensor_broadcasting_gradients(&a, &b);
+            assert!(
+                res.passed,
+                "mul grad broadcast {:?}*{:?}: {}",
+                a, b, res.details
             );
         }
     }

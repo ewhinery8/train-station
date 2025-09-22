@@ -56,7 +56,7 @@ fn demonstrate_tensor_serialization() -> Result<(), Box<dyn std::error::Error>> 
     let original_tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     println!(
         "Original tensor: shape {:?}, data: {:?}",
-        original_tensor.shape().dims,
+        original_tensor.shape().dims(),
         original_tensor.data()
     );
 
@@ -69,14 +69,14 @@ fn demonstrate_tensor_serialization() -> Result<(), Box<dyn std::error::Error>> 
     let loaded_tensor_json = Tensor::load_json(json_path)?;
     println!(
         "Loaded from JSON: shape {:?}, data: {:?}",
-        loaded_tensor_json.shape().dims,
+        loaded_tensor_json.shape().dims(),
         loaded_tensor_json.data()
     );
 
     // Verify data integrity
     assert_eq!(
-        original_tensor.shape().dims,
-        loaded_tensor_json.shape().dims
+        original_tensor.shape().dims(),
+        loaded_tensor_json.shape().dims()
     );
     assert_eq!(original_tensor.data(), loaded_tensor_json.data());
     println!("JSON serialization verification: PASSED");
@@ -90,14 +90,14 @@ fn demonstrate_tensor_serialization() -> Result<(), Box<dyn std::error::Error>> 
     let loaded_tensor_binary = Tensor::load_binary(binary_path)?;
     println!(
         "Loaded from binary: shape {:?}, data: {:?}",
-        loaded_tensor_binary.shape().dims,
+        loaded_tensor_binary.shape().dims(),
         loaded_tensor_binary.data()
     );
 
     // Verify data integrity
     assert_eq!(
-        original_tensor.shape().dims,
-        loaded_tensor_binary.shape().dims
+        original_tensor.shape().dims(),
+        loaded_tensor_binary.shape().dims()
     );
     assert_eq!(original_tensor.data(), loaded_tensor_binary.data());
     println!("Binary serialization verification: PASSED");
@@ -190,8 +190,8 @@ fn demonstrate_format_comparison() -> Result<(), Box<dyn std::error::Error>> {
     let json_tensor = Tensor::load_json("temp_comparison.json")?;
     let binary_tensor = Tensor::load_binary("temp_comparison.bin")?;
 
-    assert_eq!(tensor.shape().dims, json_tensor.shape().dims);
-    assert_eq!(tensor.shape().dims, binary_tensor.shape().dims);
+    assert_eq!(tensor.shape().dims(), json_tensor.shape().dims());
+    assert_eq!(tensor.shape().dims(), binary_tensor.shape().dims());
     assert_eq!(tensor.data(), json_tensor.data());
     assert_eq!(tensor.data(), binary_tensor.data());
 
@@ -249,8 +249,8 @@ fn demonstrate_model_checkpointing() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Verify checkpoint integrity
-    assert_eq!(weights.shape().dims, loaded_weights.shape().dims);
-    assert_eq!(bias.shape().dims, loaded_bias.shape().dims);
+    assert_eq!(weights.shape().dims(), loaded_weights.shape().dims());
+    assert_eq!(bias.shape().dims(), loaded_bias.shape().dims());
     assert_eq!(optimizer.learning_rate(), loaded_optimizer.learning_rate());
 
     println!("Checkpointing verification: PASSED");
@@ -335,13 +335,13 @@ mod tests {
         // Test JSON roundtrip
         original.save_json("test_tensor.json").unwrap();
         let loaded = Tensor::load_json("test_tensor.json").unwrap();
-        assert_eq!(original.shape().dims, loaded.shape().dims);
+        assert_eq!(original.shape().dims(), loaded.shape().dims());
         assert_eq!(original.data(), loaded.data());
 
         // Test binary roundtrip
         original.save_binary("test_tensor.bin").unwrap();
         let loaded = Tensor::load_binary("test_tensor.bin").unwrap();
-        assert_eq!(original.shape().dims, loaded.shape().dims);
+        assert_eq!(original.shape().dims(), loaded.shape().dims());
         assert_eq!(original.data(), loaded.data());
 
         // Cleanup

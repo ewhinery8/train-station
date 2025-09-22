@@ -65,7 +65,7 @@ impl TensorValidator {
         // Reconstruct full by concatenation to avoid shape/layout issues
         let mut full = Tensor::cat(&parts, dim);
         full.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };

@@ -41,7 +41,7 @@ impl TensorValidator {
         }
         let mut y = x.sqrt();
         y.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };
@@ -85,7 +85,7 @@ impl TensorValidator {
         let s = x.sqrt();
         let mut z = s.mul_tensor(&x).add_tensor(&s);
         z.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our chain grad missing".to_string()),
         };

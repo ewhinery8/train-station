@@ -34,9 +34,10 @@
 
 use std::fs;
 use train_station::{
+    gradtrack::NoGradTrack,
     optimizers::{Adam, Optimizer},
     serialization::StructSerializable,
-    NoGradTrack, Tensor,
+    Tensor,
 };
 
 /// ReLU activation function
@@ -352,8 +353,8 @@ fn demonstrate_forward_pass() {
     let output = network.forward(&input);
 
     println!("Single input forward pass:");
-    println!("  Input shape: {:?}", input.shape().dims);
-    println!("  Output shape: {:?}", output.shape().dims);
+    println!("  Input shape: {:?}", input.shape().dims());
+    println!("  Output shape: {:?}", output.shape().dims());
     println!("  Output: {:?}", output.data());
     println!("  Output requires grad: {}", output.requires_grad());
 
@@ -370,8 +371,8 @@ fn demonstrate_forward_pass() {
     let batch_output = network.forward(&batch_input);
 
     println!("Batch input forward pass:");
-    println!("  Input shape: {:?}", batch_input.shape().dims);
-    println!("  Output shape: {:?}", batch_output.shape().dims);
+    println!("  Input shape: {:?}", batch_input.shape().dims());
+    println!("  Output shape: {:?}", batch_output.shape().dims());
     println!("  Output requires grad: {}", batch_output.requires_grad());
 
     // Compare with no-grad version
@@ -414,7 +415,7 @@ fn demonstrate_configurable_architectures() {
         println!("{} network:", name);
         println!("  Architecture: 10 -> {:?} -> 3", config.hidden_sizes);
         println!("  Parameters: {}", network.parameter_count());
-        println!("  Test output shape: {:?}", output.shape().dims);
+        println!("  Test output shape: {:?}", output.shape().dims());
         println!(
             "  Output range: [{:.3}, {:.3}]",
             output.data().iter().fold(f32::INFINITY, |a, &b| a.min(b)),
@@ -456,8 +457,8 @@ fn demonstrate_training_workflow() -> Result<(), Box<dyn std::error::Error>> {
     let y_true = Tensor::from_slice(&[0.0, 1.0, 1.0, 0.0], vec![4, 1]).unwrap();
 
     println!("Training on XOR problem:");
-    println!("  Input shape: {:?}", x_data.shape().dims);
-    println!("  Target shape: {:?}", y_true.shape().dims);
+    println!("  Input shape: {:?}", x_data.shape().dims());
+    println!("  Target shape: {:?}", y_true.shape().dims());
 
     // Create optimizer
     let mut optimizer = Adam::with_learning_rate(0.1);
@@ -554,8 +555,8 @@ fn demonstrate_comprehensive_training() -> Result<(), Box<dyn std::error::Error>
 
     println!("Training data:");
     println!("  {} samples", num_samples);
-    println!("  Input shape: {:?}", x_data.shape().dims);
-    println!("  Target shape: {:?}", y_true.shape().dims);
+    println!("  Input shape: {:?}", x_data.shape().dims());
+    println!("  Target shape: {:?}", y_true.shape().dims());
 
     // Create optimizer with learning rate scheduling
     let mut optimizer = Adam::with_learning_rate(0.01);
@@ -791,7 +792,7 @@ mod tests {
         let input = Tensor::from_slice(&[1.0, 2.0], vec![1, 2]).unwrap();
         let output = network.forward(&input);
 
-        assert_eq!(output.shape().dims, vec![1, 1]);
+        assert_eq!(output.shape().dims(), vec![1, 1]);
         assert!(output.requires_grad());
     }
 
@@ -808,7 +809,7 @@ mod tests {
         let batch_input = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
         let output = network.forward(&batch_input);
 
-        assert_eq!(output.shape().dims, vec![2, 1]);
+        assert_eq!(output.shape().dims(), vec![2, 1]);
     }
 
     #[test]

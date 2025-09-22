@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn test_create_test_tensor() {
         let tensor = create_test_tensor(&[3, 3], TestPattern::Ones);
-        assert_eq!(tensor.shape().dims, vec![3, 3]);
+        assert_eq!(tensor.shape().dims(), vec![3, 3]);
 
         // Check that data pattern is applied
         unsafe {

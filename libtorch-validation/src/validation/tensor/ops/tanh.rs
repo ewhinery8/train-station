@@ -35,7 +35,7 @@ impl TensorValidator {
         let y = x.tanh();
         let mut s = y.sum();
         s.backward(None);
-        let our_grad = match x.grad_by_value() {
+        let our_grad = match x.grad_owned() {
             Some(g) => g,
             None => return ComparisonResult::failure("Our grad missing".to_string()),
         };

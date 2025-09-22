@@ -7,7 +7,7 @@ pub(crate) fn apply_pow_scalar(
     saved_input: &Tensor,
     grad_output: &Tensor,
 ) -> Vec<Option<Tensor>> {
-    let mut grad_input = Tensor::zeros(saved_input.shape().dims.clone());
+    let mut grad_input = Tensor::zeros(saved_input.shape().dims().to_vec());
     unsafe {
         let x = saved_input.as_ptr();
         let go = grad_output.as_ptr();
@@ -32,8 +32,8 @@ pub(crate) fn apply_pow_tensor(
     saved_exponent: &Tensor,
     grad_output: &Tensor,
 ) -> Vec<Option<Tensor>> {
-    let mut grad_base = Tensor::zeros(saved_base.shape().dims.clone());
-    let mut grad_exp = Tensor::zeros(saved_exponent.shape().dims.clone());
+    let mut grad_base = Tensor::zeros(saved_base.shape().dims().to_vec());
+    let mut grad_exp = Tensor::zeros(saved_exponent.shape().dims().to_vec());
     unsafe {
         let x = saved_base.as_ptr();
         let a = saved_exponent.as_ptr();

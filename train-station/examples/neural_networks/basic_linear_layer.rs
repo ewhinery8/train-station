@@ -31,9 +31,10 @@
 
 use std::fs;
 use train_station::{
+    gradtrack::NoGradTrack,
     optimizers::{Adam, AdamConfig, Optimizer},
     serialization::StructSerializable,
-    NoGradTrack, Tensor,
+    Tensor,
 };
 
 /// A basic linear layer implementation
@@ -153,8 +154,8 @@ fn demonstrate_layer_creation() {
     println!("  Input size: {}", layer.input_size);
     println!("  Output size: {}", layer.output_size);
     println!("  Parameter count: {}", layer.parameter_count());
-    println!("  Weight shape: {:?}", layer.weight.shape().dims);
-    println!("  Bias shape: {:?}", layer.bias.shape().dims);
+    println!("  Weight shape: {:?}", layer.weight.shape().dims());
+    println!("  Bias shape: {:?}", layer.bias.shape().dims());
     println!("  Weight requires grad: {}", layer.weight.requires_grad());
     println!("  Bias requires grad: {}", layer.bias.requires_grad());
 }
@@ -179,8 +180,8 @@ fn demonstrate_forward_pass() {
     let batch_output = layer.forward(&batch_input);
 
     println!("Batch input:");
-    println!("  Input shape: {:?}", batch_input.shape().dims);
-    println!("  Output shape: {:?}", batch_output.shape().dims);
+    println!("  Input shape: {:?}", batch_input.shape().dims());
+    println!("  Output shape: {:?}", batch_output.shape().dims());
     println!("  Output requires grad: {}", batch_output.requires_grad());
 }
 
@@ -235,8 +236,8 @@ fn demonstrate_training_loop() -> Result<(), Box<dyn std::error::Error>> {
     let y_true = Tensor::from_slice(&[6.0, 8.0, 9.0, 11.0], vec![4, 1]).unwrap();
 
     println!("Training data:");
-    println!("  X shape: {:?}", x_data.shape().dims);
-    println!("  Y shape: {:?}", y_true.shape().dims);
+    println!("  X shape: {:?}", x_data.shape().dims());
+    println!("  Y shape: {:?}", y_true.shape().dims());
     println!("  Target function: y = 2*x1 + 3*x2 + 1");
 
     // Create optimizer
@@ -330,8 +331,8 @@ fn demonstrate_single_vs_batch_inference() {
     println!("Single inference:");
     let single_input = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![1, 4]).unwrap();
     let single_output = layer.forward_no_grad(&single_input);
-    println!("  Input shape: {:?}", single_input.shape().dims);
-    println!("  Output shape: {:?}", single_output.shape().dims);
+    println!("  Input shape: {:?}", single_input.shape().dims());
+    println!("  Output shape: {:?}", single_output.shape().dims());
     println!("  Output: {:?}", single_output.data());
 
     // Batch inference
@@ -346,8 +347,8 @@ fn demonstrate_single_vs_batch_inference() {
     )
     .unwrap();
     let batch_output = layer.forward_no_grad(&batch_input);
-    println!("  Input shape: {:?}", batch_input.shape().dims);
-    println!("  Output shape: {:?}", batch_output.shape().dims);
+    println!("  Input shape: {:?}", batch_input.shape().dims());
+    println!("  Output shape: {:?}", batch_output.shape().dims());
 
     // Verify batch consistency - first sample should match single inference
     let _first_batch_sample = batch_output.view(vec![3, 3]); // Reshape to access first sample
@@ -459,8 +460,8 @@ mod tests {
         let layer = LinearLayer::new(3, 2, Some(42));
         assert_eq!(layer.input_size, 3);
         assert_eq!(layer.output_size, 2);
-        assert_eq!(layer.weight.shape().dims, vec![3, 2]);
-        assert_eq!(layer.bias.shape().dims, vec![2]);
+        assert_eq!(layer.weight.shape().dims(), vec![3, 2]);
+        assert_eq!(layer.bias.shape().dims(), vec![2]);
         assert!(layer.weight.requires_grad());
         assert!(layer.bias.requires_grad());
     }
@@ -471,7 +472,7 @@ mod tests {
         let input = Tensor::from_slice(&[1.0, 2.0], vec![1, 2]).unwrap();
         let output = layer.forward(&input);
 
-        assert_eq!(output.shape().dims, vec![1, 1]);
+        assert_eq!(output.shape().dims(), vec![1, 1]);
         assert!(output.requires_grad());
     }
 
@@ -481,7 +482,7 @@ mod tests {
         let input = Tensor::from_slice(&[1.0, 2.0], vec![1, 2]).unwrap();
         let output = layer.forward_no_grad(&input);
 
-        assert_eq!(output.shape().dims, vec![1, 1]);
+        assert_eq!(output.shape().dims(), vec![1, 1]);
         assert!(!output.requires_grad());
     }
 
@@ -491,7 +492,7 @@ mod tests {
         let batch_input = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
         let output = layer.forward(&batch_input);
 
-        assert_eq!(output.shape().dims, vec![2, 1]);
+        assert_eq!(output.shape().dims(), vec![2, 1]);
     }
 
     #[test]
@@ -509,8 +510,8 @@ mod tests {
         let loaded = LinearLayer::load_json("test_layer", 2, 1).unwrap();
 
         // Verify shapes
-        assert_eq!(original.weight.shape().dims, loaded.weight.shape().dims);
-        assert_eq!(original.bias.shape().dims, loaded.bias.shape().dims);
+        assert_eq!(original.weight.shape().dims(), loaded.weight.shape().dims());
+        assert_eq!(original.bias.shape().dims(), loaded.bias.shape().dims());
 
         // Verify data
         assert_eq!(original.weight.data(), loaded.weight.data());

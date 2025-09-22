@@ -66,11 +66,23 @@ impl TensorValidator {
         our_tensor: &Tensor,
         torch_tensor: &LibTorchTensor,
     ) -> ComparisonResult {
+        let debug = std::env::var("TS_VALIDATE_DEBUG")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if debug {
+            println!(
+                "[validate] our dims={:?} is_contig={} strides={:?} torch dims={:?}",
+                our_tensor.shape().dims(),
+                our_tensor.is_contiguous(),
+                our_tensor.strides(),
+                torch_tensor.shape()
+            );
+        }
         // Check shapes match
-        if our_tensor.shape().dims != torch_tensor.shape() {
+        if our_tensor.shape().dims() != torch_tensor.shape() {
             return ComparisonResult::failure(format!(
                 "Shape mismatch: our={:?}, torch={:?}",
-                our_tensor.shape().dims,
+                our_tensor.shape().dims(),
                 torch_tensor.shape()
             ));
         }
@@ -87,7 +99,7 @@ impl TensorValidator {
                 let mut coords = vec![0usize; rank];
                 let mut tmp = linear_idx;
                 for i in (0..rank).rev() {
-                    let dim_size = our_tensor.shape().dims[i];
+                    let dim_size = our_tensor.shape().dims()[i];
                     coords[i] = tmp % dim_size;
                     tmp /= dim_size;
                 }
@@ -139,6 +151,33 @@ impl TensorValidator {
             let atol_check = diff <= self.atol as f32;
 
             if !rtol_check && !atol_check {
+                if debug && i < 8 {
+                    println!(
+                        "[validate] mismatch at {}: our={} torch={} (rtol_bnd={} atol_bnd={})",
+                        i,
+                        our_val,
+                        torch_val,
+                        (self.rtol as f32) * torch_val.abs(),
+                        self.atol as f32
+                    );
+                    let n = our_linear.len().min(8);
+                    print!("[validate] our[0..{}] = [", n);
+                    for (j, our_val) in our_linear.iter().enumerate().take(n) {
+                        if j > 0 {
+                            print!(", ");
+                        }
+                        print!("{}", our_val);
+                    }
+                    println!("]");
+                    print!("[validate] torch[0..{}] = [", n);
+                    for (j, torch_val) in torch_data.iter().enumerate().take(n) {
+                        if j > 0 {
+                            print!(", ");
+                        }
+                        print!("{}", torch_val);
+                    }
+                    println!("]");
+                }
                 return ComparisonResult::failure(format!(
                     "Element {} differs too much: our={}, torch={}, diff={}, rtol_bound={}, atol_bound={}",
                     i, our_val, torch_val, diff,

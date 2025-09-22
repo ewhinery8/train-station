@@ -25,7 +25,7 @@
 //! // Permute 2D tensor dimensions
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
 //! let permuted = tensor.permute(vec![1, 0]);
-//! assert_eq!(permuted.shape().dims, vec![3, 2]);
+//! assert_eq!(permuted.shape().dims(), vec![3, 2]);
 //! assert_eq!(permuted.get(&[0, 0]), 1.0);
 //! assert_eq!(permuted.get(&[1, 0]), 2.0);
 //! assert_eq!(permuted.get(&[2, 1]), 6.0);
@@ -38,7 +38,7 @@
 //! let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
 //! let tensor = Tensor::from_slice(&data, vec![2, 3, 4]).unwrap();
 //! let permuted = tensor.permute(vec![2, 0, 1]);
-//! assert_eq!(permuted.shape().dims, vec![4, 2, 3]);
+//! assert_eq!(permuted.shape().dims(), vec![4, 2, 3]);
 //! ```
 //!
 //! # Gradient Tracking
@@ -50,7 +50,6 @@
 
 use crate::gradtrack::{GradEngine, GradFn};
 use crate::tensor::core::Tensor;
-use crate::tensor::Shape;
 
 impl Tensor {
     /// Permute tensor dimensions according to specified order
@@ -87,7 +86,7 @@ impl Tensor {
     /// // Permute 2D tensor (swap dimensions)
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
     /// let permuted = tensor.permute(vec![1, 0]);
-    /// assert_eq!(permuted.shape().dims, vec![3, 2]);
+    /// assert_eq!(permuted.shape().dims(), vec![3, 2]);
     /// assert_eq!(permuted.get(&[0, 0]), 1.0);
     /// assert_eq!(permuted.get(&[1, 0]), 2.0);
     /// assert_eq!(permuted.get(&[2, 1]), 6.0);
@@ -100,7 +99,7 @@ impl Tensor {
     /// let data: Vec<f32> = (0..24).map(|i| i as f32).collect();
     /// let tensor = Tensor::from_slice(&data, vec![2, 3, 4]).unwrap();
     /// let permuted = tensor.permute(vec![2, 0, 1]);
-    /// assert_eq!(permuted.shape().dims, vec![4, 2, 3]);
+    /// assert_eq!(permuted.shape().dims(), vec![4, 2, 3]);
     /// assert_eq!(permuted.size(), 24); // Total elements unchanged
     /// ```
     ///
@@ -113,7 +112,7 @@ impl Tensor {
     ///
     /// let permuted = tensor.permute(vec![1, 0]);
     /// assert!(permuted.requires_grad());
-    /// assert_eq!(permuted.shape().dims, vec![2, 2]);
+    /// assert_eq!(permuted.shape().dims(), vec![2, 2]);
     /// ```
     ///
     /// ```
@@ -122,7 +121,7 @@ impl Tensor {
     /// // Identity permutation (no change)
     /// let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![2, 2]).unwrap();
     /// let permuted = tensor.permute(vec![0, 1]);
-    /// assert_eq!(permuted.shape().dims, vec![2, 2]);
+    /// assert_eq!(permuted.shape().dims(), vec![2, 2]);
     /// assert_eq!(permuted.get(&[0, 0]), 1.0);
     /// assert_eq!(permuted.get(&[1, 1]), 4.0);
     /// ```
@@ -168,27 +167,18 @@ impl Tensor {
             }
         }
 
-        // Compute new dims and strides for view
-        let mut new_dims = Vec::with_capacity(rank);
-        for &d in &dims {
-            new_dims.push(self.shape().dims[d]);
-        }
-        // Reorder strides accordingly
-        let mut new_strides = Vec::with_capacity(rank);
-        for &d in &dims {
-            new_strides.push(self.stride(d));
-        }
-
-        // Create a non-copy view with strided layout
-        let view_shape = Shape::as_view(new_dims, new_strides);
-        let mut result = self.create_view_with_shape(view_shape);
+        // Delegate to core view: generalized permutation view
+        let mut result = match crate::tensor::core::view::transpose_view(self, &dims) {
+            Ok(v) => v,
+            Err(e) => panic!("permute view error: {:?}", e),
+        };
 
         // GradTrack: register permute for backward (inverse permutation)
         if self.requires_grad() {
             result.set_requires_grad(true);
             let grad_fn = GradFn::Permute {
                 dims: dims.clone(),
-                input_shape: self.shape().dims.clone(),
+                input_shape: self.shape().dims().to_vec(),
             };
             result.set_grad_fn(grad_fn.clone());
             GradEngine::register_operation(result.id(), vec![self.id()], grad_fn);
@@ -206,7 +196,7 @@ mod tests {
     fn test_permute_basic_2d() {
         let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]).unwrap();
         let y = x.permute(vec![1, 0]);
-        assert_eq!(y.shape().dims, vec![3, 2]);
+        assert_eq!(y.shape().dims(), vec![3, 2]);
         assert_eq!(y.get(&[0, 0]), 1.0);
         assert_eq!(y.get(&[1, 0]), 2.0);
         assert_eq!(y.get(&[2, 1]), 6.0);
