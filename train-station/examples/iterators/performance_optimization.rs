@@ -29,6 +29,14 @@
 //! - **Scalability**: Processing patterns for large datasets
 //! - **Resource Management**: Efficient memory and computation usage
 //!
+//! Recommended patterns:
+//! - For element-wise transforms across a tensor, prefer `iter_flat()` + `collect_shape([..])` to
+//!   reshape in one pass; use GradTrack when needed.
+//! - For multi-dim per-row/per-slice logic, use `iter()` and assemble with `collect_shape([..])`.
+//! - For large tensors, `chunks()` or `iter_fast_chunks()` can improve locality; collect with shape.
+//! - For inference-only pipelines, `with_no_grad` + value streaming and `collect_shape` provides
+//!   highest throughput by avoiding view creation and GradTrack overhead.
+//!
 //! ## Example Code Structure
 //!
 //! 1. **Performance Benchmarking**: Measuring iterator performance characteristics
@@ -50,7 +58,11 @@
 //! - Batch processing improves cache locality
 
 use std::time::Instant;
-use train_station::Tensor;
+use train_station::{
+    gradtrack::with_no_grad,
+    tensor::{TensorCollectExt, ValuesCollectExt},
+    Tensor,
+};
 
 /// Main example function demonstrating performance optimization
 ///
@@ -90,28 +102,41 @@ fn demonstrate_performance_benchmarking() -> Result<(), Box<dyn std::error::Erro
         let direct_result = tensor.mul_scalar(2.0).add_scalar(1.0);
         let direct_time = start.elapsed();
 
-        // Benchmark 2: Iterator-based operations
+        // Benchmark 2: Iterator-based operations (grad-enabled views, flatten + collect_shape)
         let start = Instant::now();
         let iterator_result: Tensor = tensor
-            .iter()
+            .iter_elements()
             .map(|elem| elem.mul_scalar(2.0).add_scalar(1.0))
-            .collect();
+            .collect_shape(vec![size]);
         let iterator_time = start.elapsed();
 
         // Benchmark 3: Chained iterator operations
         let start = Instant::now();
         let _chained_result: Tensor = tensor
-            .iter()
+            .iter_elements()
             .map(|elem| elem.mul_scalar(2.0))
             .filter(|elem| elem.value() > size as f32)
             .map(|elem| elem.add_scalar(1.0))
             .collect();
         let chained_time = start.elapsed();
 
+        // Benchmark 4: NoGrad raw data streaming + collect_shape
+        let start = Instant::now();
+        let _streamed: Tensor = with_no_grad(|| {
+            tensor
+                .data()
+                .iter()
+                .copied()
+                .map(|x| 2.0 * x + 1.0)
+                .collect_shape(vec![size])
+        });
+        let streaming_time = start.elapsed();
+
         // Report results
         println!("  Direct operations: {:?}", direct_time);
         println!("  Iterator operations: {:?}", iterator_time);
         println!("  Chained operations: {:?}", chained_time);
+        println!("  NoGrad streaming (data.iter): {:?}", streaming_time);
 
         // Verify correctness
         assert_eq!(direct_result.data(), iterator_result.data());
@@ -120,9 +145,11 @@ fn demonstrate_performance_benchmarking() -> Result<(), Box<dyn std::error::Erro
             direct_result.data() == iterator_result.data()
         );
 
-        // Performance ratio
+        // Performance ratios
         let ratio = iterator_time.as_nanos() as f64 / direct_time.as_nanos() as f64;
+        let ratio_stream = streaming_time.as_nanos() as f64 / direct_time.as_nanos() as f64;
         println!("  Iterator/Direct ratio: {:.2}x", ratio);
+        println!("  Streaming/Direct ratio: {:.2}x", ratio_stream);
     }
 
     Ok(())
@@ -142,28 +169,23 @@ fn demonstrate_memory_optimization() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Processing tensor of size: {}", size);
 
-    // Pattern 1: Streaming processing (process in chunks)
+    // Pattern 1: Streaming processing with iterator chunks (process in blocks, collect with shape)
     println!("\nPattern 1: Streaming Processing");
     let chunk_size = 1000;
     let start = Instant::now();
-
-    let mut streamed_result = Vec::new();
-    for chunk_start in (0..size).step_by(chunk_size) {
-        let chunk_end = (chunk_start + chunk_size).min(size);
-        let chunk: Tensor = tensor
-            .iter_range(chunk_start, chunk_end)
-            .map(|elem| elem.pow_scalar(2.0).sqrt())
-            .collect();
-        streamed_result.extend(chunk.data().iter().cloned());
-    }
+    let flattened = tensor.view(vec![size as i32]);
+    let _streamed_result: Tensor = flattened
+        .chunks(chunk_size)
+        .map(|c| c.pow_scalar(2.0).sqrt())
+        .collect_shape(vec![size]);
     let streamed_time = start.elapsed();
 
     // Pattern 2: Full processing
     let start = Instant::now();
     let _full_result: Tensor = tensor
-        .iter()
+        .iter_elements()
         .map(|elem| elem.pow_scalar(2.0).sqrt())
-        .collect();
+        .collect_shape(vec![size]);
     let full_time = start.elapsed();
 
     println!("  Streaming time: {:?}", streamed_time);
@@ -177,10 +199,10 @@ fn demonstrate_memory_optimization() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nPattern 2: Lazy Evaluation");
     let start = Instant::now();
     let lazy_result: Tensor = tensor
-        .iter()
+        .iter_elements()
         .take(1000) // Only process first 1000 elements
         .map(|elem| elem.pow_scalar(2.0).sqrt())
-        .collect();
+        .collect_shape(vec![1000]);
     let lazy_time = start.elapsed();
 
     println!("  Lazy processing (1000 elements): {:?}", lazy_time);
@@ -190,7 +212,7 @@ fn demonstrate_memory_optimization() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nPattern 3: Memory-Efficient Filtering");
     let start = Instant::now();
     let filtered_result: Tensor = tensor
-        .iter()
+        .iter_elements()
         .filter(|elem| elem.value() > size as f32 / 2.0) // Keep only large values
         .map(|elem| elem.mul_scalar(2.0))
         .collect();

@@ -70,10 +70,10 @@ use std::sync::Arc;
 use crate::device::current_device;
 use crate::gradtrack::engine::ensure_local_group_for_tensor;
 use crate::gradtrack::{self, GradEngine, GradFn};
-use crate::tensor::core::memory::{
-    compute_allocation_params, detect_runtime_simd, simd_lane_width_elems, use_pool_alloc_enabled,
-    SimdLevel,
-};
+#[cfg(target_arch = "x86_64")]
+#[cfg(test)]
+use crate::tensor::core::memory::SimdLevel;
+use crate::tensor::core::memory::{compute_allocation_params, use_pool_alloc_enabled};
 use crate::tensor::core::{Allocation, Device, TENSOR_ID_COUNTER};
 use crate::tensor::Shape;
 
@@ -118,13 +118,21 @@ impl Tensor {
 
     /// Returns the highest runtime-detected SIMD level on this CPU
     #[inline]
+    #[cfg(test)]
+    #[cfg(target_arch = "x86_64")]
     pub(crate) fn simd_runtime_level() -> SimdLevel {
+        use crate::tensor::core::memory::detect_runtime_simd;
+
         detect_runtime_simd()
     }
 
     /// Returns the SIMD lane width (elements per vector) for f32 at runtime
     #[inline]
+    #[cfg(test)]
+    #[cfg(target_arch = "x86_64")]
     pub(crate) fn simd_lane_width_elems_runtime() -> usize {
+        use crate::tensor::core::memory::simd_lane_width_elems;
+
         simd_lane_width_elems(Self::simd_runtime_level())
     }
 
@@ -626,22 +634,43 @@ impl Tensor {
         self.requires_grad
     }
 
-    /// Get the accumulated gradients (if any)
+    /// Get a reference to this tensor's locally cached gradient (if any)
     ///
-    /// Returns a reference to the gradient tensor if gradients have been computed
-    /// and this tensor has gradient tracking enabled.
+    /// This accessor returns only the gradient cached on this tensor's `grad` field.
+    /// It does NOT query the global/autograd gradient storage. For leaf tensors,
+    /// gradients are accumulated and tracked by the grad engine and are not
+    /// automatically written back to the local `grad` field.
+    ///
+    /// To make `grad()` return `Some(&Tensor)`:
+    /// - Enable retention on this tensor (typically for non-leaf tensors) with
+    ///   `retain_grad_(&mut tensor, true)` or `tensor.retain_grad()`
+    /// - After `backward()`, call `tensor.materialize_grad()` or
+    ///   `tensor.grad_or_fetch()` to copy the accumulated gradient from the
+    ///   autograd engine into `self.grad`
+    ///
+    /// If you want to read gradients without caching them locally, prefer
+    /// [`grad_owned`](#method.grad_owned), which consults the global gradient
+    /// storage.
     ///
     /// # Returns
     ///
-    /// Optional reference to the gradient tensor, or `None` if no gradients exist
+    /// Optional reference to the locally cached gradient tensor, or `None` if
+    /// not materialized on this tensor.
     ///
     /// # Examples
     ///
     /// ```
     /// use train_station::Tensor;
     ///
-    /// let tensor = Tensor::ones(vec![2, 3]).with_requires_grad();
-    /// assert!(tensor.grad().is_none()); // No gradients computed yet
+    /// let mut x = Tensor::ones(vec![2, 3]).with_requires_grad();
+    /// let mut loss = x.sum();
+    /// loss.backward(None);
+    /// // Without materialization, grad() typically returns None for leaves
+    /// assert!(x.grad().is_none());
+    /// // Materialize to cache locally so grad() works
+    /// x.retain_grad_ (true);
+    /// x.materialize_grad();
+    /// assert!(x.grad().is_some());
     /// ```
     #[track_caller]
     pub fn grad(&self) -> Option<&Tensor> {
@@ -684,34 +713,31 @@ impl Tensor {
         self.grad.as_deref()
     }
 
-    /// Get the accumulated gradient as an owned tensor
+    /// Get the accumulated gradient from the autograd engine as an owned tensor
     ///
-    /// Returns the gradient by value (owned). This complements `grad()` which returns
-    /// a reference. Useful when you need to take ownership of the gradient data
-    /// (e.g., move into another structure or thread).
+    /// This accessor queries the global/shared gradient storage for this tensor's
+    /// ID and returns the current accumulated gradient by value. It complements
+    /// [`grad`](#method.grad), which only returns a locally cached reference.
     ///
-    /// This function does not clear internal gradient state. If a locally cached
-    /// gradient is not present, it consults shared autograd storage to fetch an
-    /// up-to-date gradient for this tensor ID.
+    /// - Works for leaf tensors without any prior materialization step
+    /// - Does not modify or clear internal gradient state
+    /// - Suitable for optimizers and logging that need the latest gradients
     ///
     /// # Returns
     ///
-    /// `Some(Tensor)` containing the gradient when available, otherwise `None`.
+    /// `Some(Tensor)` containing the current accumulated gradient when available,
+    /// otherwise `None`.
     ///
     /// # Examples
     ///
     /// ```
     /// use train_station::Tensor;
     ///
-    /// // Before backward: no gradient yet
     /// let mut x = Tensor::ones(vec![2, 3]).with_requires_grad();
-    /// assert!(x.grad_owned().is_none());
-    ///
-    /// // Compute a simple loss and backprop
     /// let mut loss = x.sum();
     /// loss.backward(None);
     ///
-    /// // Fetch the gradient by value (owned)
+    /// // Fetch directly from autograd storage (no materialization required)
     /// let g = x.grad_owned().unwrap();
     /// assert_eq!(g.shape().dims(), vec![2, 3]);
     /// ```
@@ -1843,6 +1869,21 @@ impl Tensor {
             _phantom: PhantomData,
         }
     }
+}
+
+// -------------------------------------------------------------------------------------------------
+// Fast-path routing helper for iterator and collect APIs
+// -------------------------------------------------------------------------------------------------
+
+/// Determine whether to use the no-grad fast path for iterator/collect operations.
+///
+/// Fast path is selected when either:
+/// - No input requires gradients, or
+/// - Global grad tracking is disabled for the current thread
+#[inline]
+pub(crate) fn should_use_fast_path(inputs: &[&Tensor]) -> bool {
+    let any_requires_grad = inputs.iter().any(|t| t.requires_grad());
+    !any_requires_grad || !crate::gradtrack::is_grad_enabled()
 }
 
 #[cfg(test)]

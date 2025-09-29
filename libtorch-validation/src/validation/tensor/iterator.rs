@@ -109,7 +109,7 @@ mod tests {
 
         // Complex iterator chain: chunk -> transform -> flatten -> collect
         let transformed: Vec<Tensor> = our_tensor
-            .iter_chunks(2)
+            .chunks(2)
             .enumerate()
             .map(|(i, chunk)| {
                 if i % 2 == 0 {
@@ -194,7 +194,7 @@ mod tests {
 
         // Original complex iterator chain that works with gradients
         let transformed: Vec<Tensor> = our_tensor
-            .iter_chunks(2)
+            .chunks(2)
             .enumerate()
             .map(|(i, chunk)| {
                 if i % 2 == 0 {
@@ -285,7 +285,7 @@ mod tests {
 
         // Process chunks and collect
         let processed: Vec<Tensor> = our_tensor
-            .iter_chunks(2)
+            .chunks(2)
             .map(|chunk| chunk.mul_scalar(3.0).add_scalar(1.0))
             .collect();
 
@@ -318,10 +318,7 @@ mod tests {
         let our_tensor = Tensor::from_slice(&data, vec![5]).unwrap();
 
         // Process windows and collect
-        let processed: Vec<Tensor> = our_tensor
-            .iter_windows(3)
-            .map(|window| window.sum())
-            .collect();
+        let processed: Vec<Tensor> = our_tensor.windows(3).map(|window| window.sum()).collect();
 
         let our_result = Tensor::collect_into_shape(processed, vec![3]);
 
@@ -402,7 +399,7 @@ mod tests {
         let our_tensor = Tensor::from_slice(&data, vec![6]).unwrap();
 
         // Split into chunks and collect into different shape
-        let chunks: Vec<Tensor> = our_tensor.iter_chunks(2).collect();
+        let chunks: Vec<Tensor> = our_tensor.chunks(2).collect();
         let our_result = Tensor::collect_into_shape(chunks, vec![3, 2]);
 
         // LibTorch equivalent: reshape
@@ -429,8 +426,8 @@ mod tests {
         our_tensor.set_requires_grad(true);
 
         // Create multiple transformations that depend on the same tensor
-        let chunk1 = our_tensor.iter_chunks(2).next().unwrap().mul_scalar(2.0);
-        let chunk2 = our_tensor.iter_chunks(2).nth(1).unwrap().mul_scalar(3.0);
+        let chunk1 = our_tensor.chunks(2).next().unwrap().mul_scalar(2.0);
+        let chunk2 = our_tensor.chunks(2).nth(1).unwrap().mul_scalar(3.0);
 
         let chunks = vec![chunk1, chunk2];
         let our_result = Tensor::collect_into_shape(chunks, vec![4]);
@@ -528,10 +525,10 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
         let our_tensor = Tensor::from_slice(&data, vec![6]).unwrap();
 
-        // Process values and collect into new shape
+        // Process values via element views and collect into new shape
         let processed_values: Vec<f32> = our_tensor
-            .iter_values()
-            .map(|val| val * 2.0 + 1.0)
+            .iter_elements()
+            .map(|e| e.value() * 2.0 + 1.0)
             .collect();
 
         let our_result = Tensor::from_slice(&processed_values, vec![2, 3]).unwrap();
@@ -567,13 +564,13 @@ mod tests {
 
         // Path A: Inherent collect_shape on chunks iterator
         let chunks_a = ours
-            .iter_chunks(2)
+            .chunks(2)
             .map(|c| c.mul_scalar(2.0).exp())
             .collect_shape(vec![8]);
 
         // Path B: Trait collect_shape on an equivalent map chain
         let parts_b: Vec<Tensor> = ours
-            .iter_chunks(2)
+            .chunks(2)
             .map(|c| c.mul_scalar(2.0))
             .map(|c| c.exp())
             .collect();
@@ -654,7 +651,7 @@ mod tests {
 
         // Chain: windows -> sum -> affine
         let windows: Vec<Tensor> = ours
-            .iter_windows(3)
+            .windows(3)
             .map(|w| w.sum())
             .map(|s| s.mul_scalar(2.0).add_scalar(1.0))
             .collect();
@@ -729,7 +726,7 @@ mod tests {
 
         // Chain: chunks -> transform -> flatten to elements -> collect
         let parts: Vec<Tensor> = ours
-            .iter_chunks(2)
+            .chunks(2)
             .map(|c| c.mul_scalar(0.5))
             .flat_map(|c| c.iter_elements().collect::<Vec<_>>())
             .collect();
@@ -798,12 +795,9 @@ mod tests {
             .collect_shape(vec![12]);
 
         // Generic helper based collect
-        let c =
-            Tensor::collect_shape_from(contig.iter_chunks(3).map(|c| c.add_scalar(1.0)), vec![12]);
-        let d = Tensor::collect_shape_from(
-            nontrivial.iter_chunks(3).map(|c| c.add_scalar(1.0)),
-            vec![12],
-        );
+        let c = Tensor::collect_into_shape(contig.chunks(3).map(|c| c.add_scalar(1.0)), vec![12]);
+        let d =
+            Tensor::collect_into_shape(nontrivial.chunks(3).map(|c| c.add_scalar(1.0)), vec![12]);
 
         // Torch baselines
         let t = LibTorchTensor::from_data(&data, &[12]).unwrap();
@@ -834,5 +828,292 @@ mod tests {
         assert!(validator.compare_tensors(&b, &tb).passed);
         assert!(validator.compare_tensors(&c, &tc).passed);
         assert!(validator.compare_tensors(&d, &td).passed);
+    }
+
+    /// Element iterator: map chain with ops mirrored in LibTorch (mul+add+exp+log)
+    /// log(exp(a)) simplifies to a, providing a strong gradient check
+    #[test]
+    fn test_element_iterator_map_exp_log_forward_backward() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        let data: Vec<f32> = (1..=16).map(|x| x as f32 * 0.25).collect();
+        let mut ours = Tensor::from_slice(&data, vec![16]).unwrap();
+        ours.set_requires_grad(true);
+
+        // Our iterator pipeline: for each scalar view e -> log(exp(1.2*e - 0.3))
+        let out = ours
+            .iter_elements()
+            .map(|e| e.mul_scalar(1.2).add_scalar(-0.3).exp().log())
+            .collect();
+
+        // Torch baseline: vectorized equivalent
+        let torch = LibTorchTensor::from_data(&data, &[16])
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let torch_out = torch
+            .mul_scalar(1.2)
+            .unwrap()
+            .add_scalar(-0.3)
+            .unwrap()
+            .exp()
+            .unwrap()
+            .log()
+            .unwrap();
+
+        // Forward compare
+        let cmp = validator.compare_tensors(&out, &torch_out);
+        assert!(
+            cmp.passed,
+            "element map exp/log forward failed: {}",
+            cmp.details
+        );
+
+        // Backward compare
+        let mut loss = out.sum();
+        loss.backward(None);
+        let g_ours = ours.grad_owned().unwrap();
+
+        let torch_loss = torch_out.sum().unwrap();
+        torch_loss.backward_scalar().unwrap();
+        let g_torch = torch.grad().unwrap();
+
+        let cmpg = validator.compare_tensors(&g_ours, &g_torch);
+        assert!(
+            cmpg.passed,
+            "element map exp/log gradient failed: {}",
+            cmpg.details
+        );
+    }
+
+    /// Chunks iterator: apply sqrt after affine transform per chunk and collect back
+    #[test]
+    fn test_chunks_iterator_affine_sqrt_forward_backward() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        // Positive data for sqrt domain
+        let data: Vec<f32> = (1..=12).map(|x| x as f32).collect();
+        let mut ours = Tensor::from_slice(&data, vec![12]).unwrap();
+        ours.set_requires_grad(true);
+
+        let parts: Vec<Tensor> = ours
+            .chunks(5)
+            .map(|c| c.mul_scalar(0.5).add_scalar(2.0).sqrt())
+            .collect();
+        let out = Tensor::collect_into_shape(parts, vec![12]);
+
+        // Torch baseline
+        let torch = LibTorchTensor::from_data(&data, &[12])
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let torch_out = torch
+            .mul_scalar(0.5)
+            .unwrap()
+            .add_scalar(2.0)
+            .unwrap()
+            .sqrt()
+            .unwrap();
+
+        let cmp = validator.compare_tensors(&out, &torch_out);
+        assert!(
+            cmp.passed,
+            "chunks affine+sqrt forward failed: {}",
+            cmp.details
+        );
+
+        let mut loss = out.sum();
+        loss.backward(None);
+        let g_ours = ours.grad_owned().unwrap();
+
+        let torch_loss = torch_out.sum().unwrap();
+        torch_loss.backward_scalar().unwrap();
+        let g_torch = torch.grad().unwrap();
+
+        let cmpg = validator.compare_tensors(&g_ours, &g_torch);
+        assert!(
+            cmpg.passed,
+            "chunks affine+sqrt gradient failed: {}",
+            cmpg.details
+        );
+    }
+
+    /// Windows with custom step: validate overlapping accumulation and gradients
+    #[test]
+    fn test_windows_step_iterator_forward_backward() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        let data: Vec<f32> = (1..=10).map(|x| x as f32).collect();
+        let mut ours = Tensor::from_slice(&data, vec![10]).unwrap();
+        ours.set_requires_grad(true);
+
+        // Windows of size 3, step 2: map affine then sum windows, stack into [num_windows]
+        let windows: Vec<Tensor> = ours
+            .windows_step(3, 2)
+            .map(|w| w.mul_scalar(1.5).add_scalar(-0.25).sum())
+            .collect();
+        let out = Tensor::collect_into_shape(windows, vec![((10 - 3) / 2) + 1]);
+
+        // Torch baseline: manual windowing via index_select on 1D
+        let torch = LibTorchTensor::from_data(&data, &[10])
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let mut torch_windows: Vec<LibTorchTensor> = Vec::new();
+        let starts: Vec<usize> = (0..=10 - 3).step_by(2).collect();
+        for s in &starts {
+            let idx: Vec<usize> = (*s..*s + 3).collect();
+            let w = torch.index_select(0, &idx).unwrap();
+            let w2 = w
+                .mul_scalar(1.5)
+                .unwrap()
+                .add_scalar(-0.25)
+                .unwrap()
+                .sum()
+                .unwrap();
+            torch_windows.push(w2);
+        }
+        let n_wins = starts.len();
+        let torch_out = {
+            let stacked = LibTorchTensor::stack(&torch_windows, 0).unwrap();
+            stacked.view(&[n_wins]).unwrap()
+        };
+
+        let cmp = validator.compare_tensors(&out, &torch_out);
+        assert!(cmp.passed, "windows_step forward failed: {}", cmp.details);
+
+        let mut loss = out.sum();
+        loss.backward(None);
+        let g_ours = ours.grad_owned().unwrap();
+
+        let torch_loss = torch_out.sum().unwrap();
+        torch_loss.backward_scalar().unwrap();
+        let g_torch = torch.grad().unwrap();
+
+        let cmpg = validator.compare_tensors(&g_ours, &g_torch);
+        assert!(
+            cmpg.passed,
+            "windows_step gradient failed: {}",
+            cmpg.details
+        );
+    }
+
+    /// iter_dim over rows: map per-row and collect back to original shape
+    #[test]
+    fn test_iter_dim_rows_map_collect_forward_backward() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        let data: Vec<f32> = (1..=24).map(|x| x as f32 * 0.1).collect();
+        let mut ours = Tensor::from_slice(&data, vec![3, 8]).unwrap();
+        ours.set_requires_grad(true);
+
+        let rows: Vec<Tensor> = ours
+            .iter_dim(0)
+            .map(|r| r.mul_scalar(1.1).add_scalar(0.5))
+            .collect();
+        let out = Tensor::collect_into_shape(rows, vec![3, 8]);
+
+        let torch = LibTorchTensor::from_data(&data, &[3, 8])
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let torch_out = torch.mul_scalar(1.1).unwrap().add_scalar(0.5).unwrap();
+
+        let cmp = validator.compare_tensors(&out, &torch_out);
+        assert!(
+            cmp.passed,
+            "iter_dim rows map forward failed: {}",
+            cmp.details
+        );
+
+        let mut loss = out.sum();
+        loss.backward(None);
+        let g_ours = ours.grad_owned().unwrap();
+
+        let torch_loss = torch_out.sum().unwrap();
+        torch_loss.backward_scalar().unwrap();
+        let g_torch = torch.grad().unwrap();
+
+        let cmpg = validator.compare_tensors(&g_ours, &g_torch);
+        assert!(
+            cmpg.passed,
+            "iter_dim rows map gradient failed: {}",
+            cmpg.details
+        );
+    }
+
+    /// Edge cases: zero-sized and singleton tensors
+    #[test]
+    fn test_zero_and_singleton_iterators() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        // Zero-sized
+        let ours_empty = Tensor::new(vec![0]);
+        let out_empty: Tensor = ours_empty.iter_elements().collect();
+        let torch_empty = LibTorchTensor::zeros(&[0]).unwrap();
+        let cmp0 = validator.compare_tensors(&out_empty, &torch_empty);
+        assert!(
+            cmp0.passed,
+            "zero-sized iterator collect failed: {}",
+            cmp0.details
+        );
+
+        // Singleton
+        let data = vec![42.0f32];
+        let ours_one = Tensor::from_slice(&data, vec![1]).unwrap();
+        let out_one: Tensor = ours_one.iter_elements().rev().collect();
+        let torch_one = LibTorchTensor::from_data(&data, &[1]).unwrap();
+        let cmp1 = validator.compare_tensors(&out_one, &torch_one);
+        assert!(
+            cmp1.passed,
+            "singleton rev iterator collect failed: {}",
+            cmp1.details
+        );
+    }
+
+    /// Non-contiguous base (transpose): element iteration parity with LibTorch permute
+    #[test]
+    fn test_transposed_noncontiguous_iter_elements_forward_backward() {
+        let validator = TensorValidator::new(1e-5, 1e-8);
+
+        let data: Vec<f32> = (1..=12).map(|x| x as f32).collect();
+        let base = Tensor::from_slice(&data, vec![3, 4]).unwrap();
+        let ours = base.transpose(0, 1).with_requires_grad();
+
+        let out: Tensor = ours
+            .iter_elements()
+            .map(|e| e.mul_scalar(0.75).add_scalar(0.1))
+            .collect_shape(vec![4, 3]);
+
+        // Torch baseline: permute then same vectorized ops
+        let torch = LibTorchTensor::from_data(&data, &[3, 4])
+            .unwrap()
+            .permute(&[1, 0])
+            .unwrap()
+            .requires_grad_(true)
+            .unwrap();
+        let torch_out = torch.mul_scalar(0.75).unwrap().add_scalar(0.1).unwrap();
+
+        let cmp = validator.compare_tensors(&out, &torch_out);
+        assert!(
+            cmp.passed,
+            "transposed iter_elements forward failed: {}",
+            cmp.details
+        );
+
+        let mut loss = out.sum();
+        loss.backward(None);
+        let g_ours = ours.grad_owned().unwrap();
+
+        let torch_loss = torch_out.sum().unwrap();
+        torch_loss.backward_scalar().unwrap();
+        let g_torch = torch.grad().unwrap();
+
+        let cmpg = validator.compare_tensors(&g_ours, &g_torch);
+        assert!(
+            cmpg.passed,
+            "transposed iter_elements gradient failed: {}",
+            cmpg.details
+        );
     }
 }

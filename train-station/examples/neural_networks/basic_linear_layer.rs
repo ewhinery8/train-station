@@ -76,6 +76,7 @@ impl LinearLayer {
     }
 
     /// Forward pass without gradients (for inference)
+    #[allow(unused)]
     pub fn forward_no_grad(&self, input: &Tensor) -> Tensor {
         let _guard = NoGradTrack::new();
         self.forward(input)
@@ -87,6 +88,7 @@ impl LinearLayer {
     }
 
     /// Save layer parameters to JSON
+    #[allow(unused)]
     pub fn save_json(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Create directory if it doesn't exist
         if let Some(parent) = std::path::Path::new(path).parent() {
@@ -104,6 +106,7 @@ impl LinearLayer {
     }
 
     /// Load layer parameters from JSON
+    #[allow(unused)]
     pub fn load_json(
         path: &str,
         input_size: usize,
@@ -124,11 +127,13 @@ impl LinearLayer {
     }
 
     /// Get parameter count
+    #[allow(unused)]
     pub fn parameter_count(&self) -> usize {
         self.input_size * self.output_size + self.output_size
     }
 }
 
+#[allow(unused)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Basic Linear Layer Example ===\n");
 

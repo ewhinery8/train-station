@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 - 
 
+### Breaking Changes
+- 
+
 ### Documentation
 - 
 
@@ -28,21 +31,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - 
 
+## [0.3.0] - 2025-09-29
+
+### Added
+- No new features
+
+### Fixed
+- No bug fixes
+
+### Performance
+- improved Tensor Iterator system semantics and collection performance
+    - removed iter_values() in favor of tensor.data().iter()
+    - updated semantics for iterators to better reflect std Rust
+    - updated code docs to better reflect functionality
+    - added training examples and basic network examples
+    - BREAKING CHANGE: Iterator signatures changed; see examples and docs
+
+### Breaking Changes
+- Iterator signatures changed; see examples and docs
+
+### Documentation
+- No documentation changes
+
+### Maintenance
+- No maintenance changes
+
+### Other Changes
+- No other changes
+
 ## [0.2.0] - 2025-09-21
 
 ### Added
 - add view system, memory pool, thread-safe autograd, and broadcasting
-  - Zero-copy views (reshape, transpose, slice, as_strided)
-  - SIMD-aligned TensorMemoryPool with thread-local optimization
-  - Thread-safe GradTrack with local/shared computation graphs
-  - NumPy-compatible broadcasting for element-wise and batched ops
-  - Enhanced matmul/add with SIMD acceleration
-  - Add retain_grad for non-leaf tensor gradients
-  - Improve function signatures for better Rust idioms
-  - Enhanced Iterator system with idiomatic Rust patterns
-  - Add iter_values for efficient element iteration
-  - Add collect_shape for seamless tensor reconstruction from iterators
-  - Add TensorCollectExt trait for iterator-based tensor construction
+    - Zero-copy views (reshape, transpose, slice, as_strided)
+    - SIMD-aligned TensorMemoryPool with thread-local optimization
+    - Thread-safe GradTrack with local/shared computation graphs
+    - NumPy-compatible broadcasting for element-wise and batched ops
+    - Enhanced matmul/add with SIMD acceleration
+    - Add retain_grad for non-leaf tensor gradients
+    - Improve function signatures for better Rust idioms
+    - Enhanced Iterator system with idiomatic Rust patterns
+    - Add iter_values for efficient element iteration
+    - Add collect_shape for seamless tensor reconstruction from iterators
+    - Add TensorCollectExt trait for iterator-based tensor construction
 
 ### Fixed
 - No bug fixes
@@ -104,14 +135,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - enhance cross-platform build system with comprehensive CI/CD pipeline
   feat: enhance cross-platform build system with comprehensive CI/CD pipeline
-  - Add sophisticated build scripts with static linking for train-station CUDA stubs
-  - Support Windows (MSVC/MinGW), macOS (Clang/GCC), Linux (GCC/Clang) toolchains
-  - Add graceful degradation for missing compilers and archiver tools
-  - Fix cross-compilation support using TARGET environment variable
-  - Resolve all clippy warnings
-  - Update CI workflows
-  - Establish target matching convention (runtime target = compilation target)
-  - Implement zero runtime dependencies through static linking strategy
+    - Add sophisticated build scripts with static linking for train-station CUDA stubs
+    - Support Windows (MSVC/MinGW), macOS (Clang/GCC), Linux (GCC/Clang) toolchains
+    - Add graceful degradation for missing compilers and archiver tools
+    - Fix cross-compilation support using TARGET environment variable
+    - Resolve all clippy warnings
+    - Update CI workflows
+    - Establish target matching convention (runtime target = compilation target)
+    - Implement zero runtime dependencies through static linking strategy
 
 ### Fixed
 - No bug fixes
