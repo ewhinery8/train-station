@@ -1,5 +1,17 @@
 //! Linear window iterators over tensors as overlapping views
+//!
+//! Gradients are preserved implicitly for with-grad paths: each yielded window is
+//! created via `Tensor::slice_view(start, 1, window_size)`, which registers a
+//! `GradFn::View` with a `ViewMapping::LinearRange { start, step: 1, length: window_size }`
+//! when the source requires gradients and gradient tracking is enabled.
+//!
+//! Performance routing is decided once at construction:
+//! - In no-grad fast mode, if the source is non-contiguous, the iterator performs a
+//!   single one-time `contiguous()` materialization and holds an internal owner.
+//!   Subsequent window views are taken from this contiguous owner (no per-window copies).
+//! - In with-grad mode, zero-copy views are created directly from the source.
 
+use crate::tensor::core::utils::should_use_fast_path;
 use crate::tensor::core::Tensor;
 use std::iter::{ExactSizeIterator, FusedIterator};
 
@@ -10,6 +22,8 @@ pub struct TensorWindowsIterator<'a> {
     pub(crate) start: usize,
     pub(crate) last_start: usize,
     pub(crate) finished: bool,
+    // One-time contiguous owner for fast path on non-contiguous sources
+    pub(crate) owner: Option<Tensor>,
 }
 
 impl<'a> TensorWindowsIterator<'a> {
@@ -18,8 +32,21 @@ impl<'a> TensorWindowsIterator<'a> {
         assert!(window_size > 0, "window_size must be > 0");
         assert!(step > 0, "step must be > 0");
         let size = source.size();
-        let last_start = size.saturating_sub(window_size);
+        // Align the last_start to the stepping grid so reverse iteration returns
+        // the same sequence of window starts as forward iteration in reverse order.
+        let raw_last = size.saturating_sub(window_size);
+        let last_start = if window_size > size {
+            0
+        } else {
+            (raw_last / step) * step
+        };
         let finished = window_size > size;
+        let fast = should_use_fast_path(&[source]);
+        let owner = if fast && !source.is_contiguous() && size > 0 {
+            Some(source.contiguous())
+        } else {
+            None
+        };
         Self {
             source,
             window_size,
@@ -27,12 +54,18 @@ impl<'a> TensorWindowsIterator<'a> {
             start: 0,
             last_start,
             finished,
+            owner,
         }
     }
 
     #[inline]
     fn create_window_view(&self, start: usize) -> Tensor {
-        self.source.slice_view(start, 1, self.window_size)
+        // Select base tensor according to construction-time policy
+        let base: &Tensor = match &self.owner {
+            Some(o) => o,
+            None => self.source,
+        };
+        base.slice_view(start, 1, self.window_size)
     }
 
     #[inline]
@@ -98,11 +131,64 @@ impl<'a> DoubleEndedIterator for TensorWindowsIterator<'a> {
 }
 
 impl Tensor {
+    /// Overlapping windows iterator with step=1. Use this instead of `iter_windows`.
+    ///
+    /// Produces overlapping linear windows as view tensors. In no-grad fast mode,
+    /// a contiguous owner may be materialized once for faster subsequent views.
+    ///
+    /// # Arguments
+    ///
+    /// * `window_size` - Length of each window (> 0)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use train_station::Tensor;
+    ///
+    /// let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
+    /// let v: Vec<f32> = t.windows(3).map(|w| w.sum().value()).collect();
+    /// assert_eq!(v, vec![6.0, 9.0]);
+    /// ```
+    #[inline]
+    pub fn windows(&self, window_size: usize) -> TensorWindowsIterator<'_> {
+        TensorWindowsIterator::new(self, window_size, 1)
+    }
+
+    /// Overlapping windows iterator with custom step. Use this instead of `iter_windows_step`.
+    ///
+    /// Produces windows starting at positions `0, step, 2*step, ...` up to the last
+    /// valid start. Reverse iteration yields the same sequence in reverse.
+    ///
+    /// # Arguments
+    ///
+    /// * `window_size` - Length of each window (> 0)
+    /// * `step` - Step between consecutive window starts (> 0)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use train_station::Tensor;
+    ///
+    /// let t = Tensor::from_slice(&(1..=8).map(|i| i as f32).collect::<Vec<_>>(), vec![8]).unwrap();
+    /// let wins: Vec<Tensor> = t.windows_step(3, 2).collect();
+    /// assert_eq!(wins[0].data(), &[1.0, 2.0, 3.0]);
+    /// assert_eq!(wins[1].data(), &[3.0, 4.0, 5.0]);
+    /// assert_eq!(wins[2].data(), &[5.0, 6.0, 7.0]);
+    /// ```
+    #[inline]
+    pub fn windows_step(&self, window_size: usize, step: usize) -> TensorWindowsIterator<'_> {
+        TensorWindowsIterator::new(self, window_size, step)
+    }
+
+    #[deprecated(note = "Use Tensor::windows(...) instead. This alias will be removed before 1.0.")]
     #[inline]
     pub fn iter_windows(&self, window_size: usize) -> TensorWindowsIterator<'_> {
         TensorWindowsIterator::new(self, window_size, 1)
     }
 
+    #[deprecated(
+        note = "Use Tensor::windows_step(...) instead. This alias will be removed before 1.0."
+    )]
     #[inline]
     pub fn iter_windows_step(&self, window_size: usize, step: usize) -> TensorWindowsIterator<'_> {
         TensorWindowsIterator::new(self, window_size, step)
@@ -112,11 +198,12 @@ impl Tensor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gradtrack::NoGradTrack;
 
     #[test]
     fn test_windows() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
-        let wins: Vec<Tensor> = t.iter_windows(3).collect();
+        let wins: Vec<Tensor> = t.windows(3).collect();
         assert_eq!(wins.len(), 2);
         assert_eq!(wins[0].data(), &[1.0, 2.0, 3.0]);
         assert_eq!(wins[1].data(), &[2.0, 3.0, 4.0]);
@@ -125,7 +212,7 @@ mod tests {
     #[test]
     fn test_windows_step() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-        let wins: Vec<Tensor> = t.iter_windows_step(2, 2).collect();
+        let wins: Vec<Tensor> = t.windows_step(2, 2).collect();
         assert_eq!(wins.len(), 2);
         assert_eq!(wins[0].data(), &[1.0, 2.0]);
         assert_eq!(wins[1].data(), &[3.0, 4.0]);
@@ -169,5 +256,61 @@ mod tests {
         assert_eq!(g.get(&[0, 0]), 2.0);
         assert_eq!(g.get(&[1, 0]), 4.0);
         assert_eq!(g.get(&[2, 0]), 2.0);
+    }
+
+    #[test]
+    fn test_windows_iter_gradient_propagation() {
+        let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4])
+            .unwrap()
+            .with_requires_grad();
+        // Overlapping windows of size 3, step 1; map then collect
+        let wins: Vec<Tensor> = t.windows(3).map(|w| w.mul_scalar(2.0)).collect();
+        let y = Tensor::cat(&wins, 0).sum();
+        let mut loss = y;
+        loss.backward(None);
+        let g = t.grad_owned().unwrap();
+        // Coverage per index: [0] in 1 window, [1] in 2, [2] in 2, [3] in 1; each window scaled by 2
+        assert_eq!(g.data(), &[2.0, 4.0, 4.0, 2.0]);
+    }
+
+    #[test]
+    fn test_windows_double_ended_and_size_hint() {
+        let t =
+            Tensor::from_slice(&(1..=8).map(|i| i as f32).collect::<Vec<_>>(), vec![8]).unwrap();
+        let mut it = t.windows_step(3, 2); // starts at 0,2,4
+        assert_eq!(it.size_hint(), (3, Some(3)));
+        assert_eq!(it.len(), 3);
+
+        let back = it.next_back().unwrap();
+        assert_eq!(back.data(), &[5.0, 6.0, 7.0]);
+        assert_eq!(it.len(), 2);
+        let front = it.next().unwrap();
+        assert_eq!(front.data(), &[1.0, 2.0, 3.0]);
+        let mid = it.next().unwrap();
+        assert_eq!(mid.data(), &[3.0, 4.0, 5.0]);
+        assert!(it.next().is_none());
+        assert!(it.next_back().is_none());
+        assert_eq!(it.size_hint(), (0, Some(0)));
+    }
+
+    #[test]
+    fn test_windows_zero_sized_tensor() {
+        let t = Tensor::new(vec![0]);
+        let it = t.windows(3);
+        assert_eq!(it.len(), 0);
+        assert_eq!(it.size_hint(), (0, Some(0)));
+        assert_eq!(it.collect::<Vec<_>>().len(), 0);
+    }
+
+    #[test]
+    fn test_windows_no_grad_guard_disables_requires_grad() {
+        let t = Tensor::from_slice(&(0..6).map(|i| i as f32).collect::<Vec<_>>(), vec![6])
+            .unwrap()
+            .with_requires_grad();
+        let _guard = NoGradTrack::new();
+        let w = t.windows(4).next().unwrap();
+        assert!(!w.requires_grad());
+        let y: Tensor = t.windows(4).collect_shape(vec![3, 4]);
+        assert!(!y.requires_grad());
     }
 }

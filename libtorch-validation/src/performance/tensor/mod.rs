@@ -10,22 +10,6 @@
 //! - `transform`: Shape and layout transformations
 //! - `indexing`: Tensor indexing and selection operations  
 //! - `reductions`: Reduction and aggregation operations
-//!
-//! ## Usage
-//!
-//! ```rust,ignore
-//! use libtorch_validation::performance::tensor::{
-//!     ops::OpPerformanceTester,
-//!     // Future modules:
-//!     // transform::TransformPerformanceTester,
-//!     // indexing::IndexingPerformanceTester,
-//!     // reductions::ReductionPerformanceTester,
-//! };
-//!
-//! // Test all tensor operations
-//! let mut ops_tester = OpPerformanceTester::new();
-//! let results = ops_tester.test_all_operations();
-//! ```
 
 pub mod ops;
 pub mod transform;

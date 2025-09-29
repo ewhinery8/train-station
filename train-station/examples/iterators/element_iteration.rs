@@ -26,6 +26,8 @@
 //! - **Standard Library Integration**: Full compatibility with Rust's iterator traits
 //! - **Gradient Tracking**: Automatic gradient propagation through element operations
 //! - **Zero-Copy Semantics**: True views with shared memory allocation
+//! - **NoGrad Fast Paths**: Use `with_no_grad` and `data().iter()` to stream values directly for
+//!   maximum throughput when gradients are not needed
 //!
 //! ## Example Code Structure
 //!
@@ -33,6 +35,17 @@
 //! 2. **Standard Methods**: Using Iterator trait methods (map, filter, collect)
 //! 3. **Gradient Tracking**: Demonstrating autograd through element operations
 //! 4. **Advanced Patterns**: Complex iterator chains and transformations
+//! 5. **NoGrad & Streaming**: Raw data iteration + accelerated collection for inference
+//!
+//! When to use which iterator path:
+//! - Use `iter()` for multi-dim outer iteration (row-major slices). Combine with
+//!   `collect_shape([..])` to preserve shape after per-slice transforms.
+//! - Use `iter_flat()` for scalar element transforms requiring GradTrack. Combine with
+//!   `collect_shape` to reshape the output efficiently instead of manual concatenation.
+//! - Use `chunks()` or `iter_fast_chunks()` to process large 1D (or flattened) tensors
+//!   in cache-friendly blocks; `collect_shape` to reassemble.
+//! - For inference-only value pipelines, use `with_no_grad` + `data().iter().copied()` and
+//!   `collect_shape` to stream directly into the destination tensor.
 //!
 //! ## Expected Output
 //!
@@ -52,7 +65,8 @@
 //! - Study performance_optimization.rs for large-scale processing
 //! - Review tensor operations for element-wise mathematical functions
 
-use train_station::Tensor;
+use train_station::tensor::{TensorCollectExt, ValuesCollectExt};
+use train_station::{gradtrack::with_no_grad, Tensor};
 
 /// Main example function demonstrating basic element iteration
 ///
@@ -65,6 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     demonstrate_standard_methods()?;
     demonstrate_gradient_tracking()?;
     demonstrate_advanced_patterns()?;
+    demonstrate_row_wise_collect_shape()?;
+    demonstrate_nograd_and_streaming()?;
 
     println!("Element Iteration Example completed successfully!");
     Ok(())
@@ -236,6 +252,80 @@ fn demonstrate_advanced_patterns() -> Result<(), Box<dyn std::error::Error>> {
         .map(|(a, b)| a.mul_tensor(&b)) // Element-wise multiplication
         .collect();
     println!("  Combined: {:?}", combined.data());
+
+    Ok(())
+}
+
+/// Demonstrate per-row transforms with shape-preserving collection
+///
+/// Shows how to use `iter()` over the outer dimension on a 2D tensor and
+/// `collect_shape([..])` to maintain the original shape after mapping.
+fn demonstrate_row_wise_collect_shape() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n--- Row-wise iteration with collect_shape ---");
+    let mat = Tensor::from_slice(&(1..=12).map(|x| x as f32).collect::<Vec<_>>(), vec![3, 4])?;
+    println!("Input shape: {:?}", mat.shape().dims());
+
+    // Map each row: 1.1*x + 0.5, then collect back to [3,4]
+    let out: Tensor = mat
+        .iter()
+        .map(|row| row.mul_scalar(1.1).add_scalar(0.5))
+        .collect_shape(vec![3, 4]);
+    println!("  Output shape: {:?}", out.shape().dims());
+
+    Ok(())
+}
+
+/// Demonstrate NoGrad fast paths and raw data streaming
+///
+/// Highlights how to get maximum performance in inference by:
+/// - Disabling gradient tracking with `with_no_grad`
+/// - Iterating raw values via `tensor.data().iter().copied()`
+/// - Using `collect_shape` to stream directly into destination tensors
+fn demonstrate_nograd_and_streaming() -> Result<(), Box<dyn std::error::Error>> {
+    println!("\n--- NoGrad & Streaming (Inference Fast Paths) ---");
+
+    let input = Tensor::from_slice(
+        &(0..24).map(|i| i as f32 * 0.25).collect::<Vec<_>>(),
+        vec![4, 6],
+    )?;
+    println!("Input shape: {:?}", input.shape().dims());
+
+    // NoGrad: stream values directly and reshape
+    let out = with_no_grad(|| {
+        input
+            .data()
+            .iter()
+            .copied()
+            .map(|x| 1.2 * x - 0.3)
+            .collect_shape(vec![4, 6])
+    });
+    println!(
+        "  NoGrad streamed map (1.2x-0.3) -> shape {:?}",
+        out.shape().dims()
+    );
+
+    // Compare to view-based element iteration in NoGrad
+    let out_view: Tensor = with_no_grad(|| {
+        input
+            .iter()
+            .map(|e| e.mul_scalar(1.2).add_scalar(-0.3))
+            .collect_shape(vec![4, 6])
+    });
+    println!(
+        "  NoGrad view-based map shape {:?}",
+        out_view.shape().dims()
+    );
+
+    // Quick parity check
+    assert_eq!(out.data(), out_view.data());
+    println!("  Parity check passed.");
+
+    // Show simple flatten + collect back to a different shape
+    let reshaped = with_no_grad(|| input.data().iter().copied().collect_shape(vec![6, 4]));
+    println!(
+        "  Reshaped via streaming collect_shape: {:?}",
+        reshaped.shape().dims()
+    );
 
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::gradtrack::{GradEngine, GradFn};
+use crate::gradtrack::{is_grad_enabled, GradEngine, GradFn};
 use crate::tensor::core::Tensor;
 
 impl Tensor {
@@ -196,7 +196,7 @@ impl Tensor {
         }
 
         // GradTrack registration
-        if self.requires_grad() {
+        if self.requires_grad() && is_grad_enabled() {
             output.set_requires_grad(true);
             let grad_fn = GradFn::IndexSelect {
                 dim,

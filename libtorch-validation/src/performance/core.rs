@@ -348,13 +348,6 @@ impl PerformanceTester {
     /// # Returns
     ///
     /// `Ok(())` on success, or an error on failure
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// tester.save_results("performance_results.json")?;
-    /// tester.save_results("performance_results.bin")?;
-    /// ```
     pub fn save_results(&self, filename: &str) -> Result<(), Box<dyn std::error::Error>> {
         use std::fs::File;
         use std::io::Write;

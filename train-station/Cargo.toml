@@ -3,7 +3,7 @@ name = "train-station"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "A high-performance, zero dependency Rust machine learning library"
+description = "A high-performance, PyTorch inspired, zero dependency Rust machine learning library"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -15,8 +15,6 @@ readme.workspace = true
 build = "build.rs"
 
 [dependencies]
-
-[dev-dependencies]
 
 [build-dependencies]
 
@@ -88,4 +86,48 @@ path = "examples/optimizers/adam_configurations.rs"
 [[example]]
 name = "learning_rate_scheduling"
 path = "examples/optimizers/learning_rate_scheduling.rs"
+
+[[example]]
+name = "multi_head_attention"
+path = "examples/neural_networks/multi_head_attention.rs"
+
+[[example]]
+name = "basic_encoder"
+path = "examples/neural_networks/basic_encoder.rs"
+
+[[example]]
+name = "basic_decoder"
+path = "examples/neural_networks/basic_decoder.rs"
+
+[[example]]
+name = "basic_transformer"
+path = "examples/neural_networks/basic_transformer.rs"
+
+[[example]]
+name = "td3"
+path = "examples/RL_training/td3.rs"
+
+[[example]]
+name = "dqn"
+path = "examples/RL_training/dqn.rs"
+
+[[example]]
+name = "ppo_continuous"
+path = "examples/RL_training/ppo_continuous.rs"
+
+[[example]]
+name = "ppo_discrete"
+path = "examples/RL_training/ppo_discrete.rs"
+
+[[example]]
+name = "supervised_bce"
+path = "examples/supervised_training/supervised_bce.rs"
+
+[[example]]
+name = "supervised_regression"
+path = "examples/supervised_training/supervised_regression.rs"
+
+[[example]]
+name = "supervised_classification"
+path = "examples/supervised_training/supervised_classification.rs"
 

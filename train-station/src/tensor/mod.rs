@@ -144,8 +144,12 @@
 //! use train_station::Tensor;
 //!
 //! let t = Tensor::from_slice(&(0..6).map(|x| x as f32).collect::<Vec<_>>(), vec![6]).unwrap();
-//! let mat = t.iter_chunks(2).collect_shape(vec![3, 2]);
+//! let mat = t.chunks(2).collect_shape(vec![3, 2]);
 //! assert_eq!(mat.shape().dims(), &[3, 2]);
+//!
+//! // Conversions
+//! let from_vec: Tensor = vec![1.0, 2.0, 3.0].into();
+//! let back: Vec<f32> = from_vec.into();
 //! ```
 //!
 //! # Thread Safety

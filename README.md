@@ -10,15 +10,19 @@
 [![Crates.io](https://img.shields.io/crates/v/train-station.svg)](https://crates.io/crates/train-station)
 [![Documentation](https://docs.rs/train-station/badge.svg)](https://docs.rs/train-station)
 [![License](https://img.shields.io/crates/l/train-station.svg)](https://github.com/ewhinery8/train-station#license)
-[![Rust Version](https://img.shields.io/badge/rustc-1.70+-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.70.0.html)
+[![Rust Version](https://img.shields.io/badge/rustc-1.89+-blue.svg)](https://blog.rust-lang.org/2023/06/01/Rust-1.89.0.html)
 
 > A zero-dependency, PyTorch-inspired, maximum-performance Rust machine learning library.
+
+> Pre-1.0 notice: The public API is still evolving. Until 1.0, breaking changes may occur in
+> minor releases (e.g., 0.x → 0.(x+1)). Pin versions accordingly if you need stability.
 
 ### Table of Contents
 
 - [Why Train Station](#why-train-station)
 - [Quick Start](#quick-start)
 - [Examples](#examples)
+- [Recent Releases](#recent-releases)
 - [Standout Architecture](#standout-architecture)
   - [SIMD-aligned TensorMemoryPool](#simd-aligned-tensormemorypool)
   - [Safe, zero-copy View system](#safe-zero-copy-view-system)
@@ -65,7 +69,46 @@ opt.step(&mut [&mut w, &mut b]);
 ### Examples
 
 - Browse numerous runnable examples in the repository `examples/` folder:
-  - https://github.com/ewhinery8/train-station/tree/master/examples
+  - https://github.com/ewhinery8/train-station/tree/master/train-station/examples
+
+Featured runnable examples (quick start)
+
+- Neural networks (building blocks)
+  - Basic Linear Layer: `cargo run --release --example basic_linear_layer`
+  - Feed-Forward Network: `cargo run --release --example feedforward_network`
+  - Encoder / Decoder / Transformer (attention): see `examples/neural_networks/*`
+
+- Supervised learning
+  - Binary classification (BCE-with-logits, normalized inputs):
+    `cargo run --release --example supervised_bce`
+  - Regression (MSE, inputs/targets scaled to [-1, 1]):
+    `cargo run --release --example supervised_regression`
+  - Multi-class classification (cross-entropy over logits):
+    `cargo run --release --example supervised_classification`
+
+- Reinforcement learning (small YardEnv control tasks)
+  - DQN (discrete): `cargo run --release --example dqn`
+  - TD3 (continuous): `cargo run --release --example td3`
+  - PPO continuous: `cargo run --release --example ppo_continuous`
+  - PPO discrete: `cargo run --release --example ppo_discrete`
+
+What these examples demonstrate
+
+- Pure public-API usage: Tensor ops, autograd (GradTrack), optimizers (Adam), views, transforms
+- Stable training loops: zero_grad → forward → loss.backward() → clipped step → clear graphs
+- Parameter linking: add parameters once; update in place (avoid cloning/replacing tensors)
+- Numerics: BCE-with-logits and CE over logits; input/target normalization for stability
+- Logging: concise loss/accuracy (supervised) and rewards/losses/grad norms (RL)
+
+Tip: run with `--release` for speed. Some RL examples support env vars (e.g., `DQN_STEPS`, `PPO_STEPS`) to adjust runtime.
+
+### Recent Releases
+
+For the most up-to-date notes:
+
+- Latest: https://github.com/ewhinery8/train-station/releases/latest
+- All releases (browse recent three): https://github.com/ewhinery8/train-station/releases
+
 
 ### Standout Architecture
 

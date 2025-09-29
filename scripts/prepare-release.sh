@@ -92,6 +92,7 @@ FIX_COMMITS=""
 PERF_COMMITS=""
 DOCS_COMMITS=""
 CHORE_COMMITS=""
+BREAKING_COMMITS=""
 OTHER_COMMITS=""
 
 # Process each commit individually to get full messages
@@ -99,12 +100,43 @@ if [ -n "$COMMIT_HASHES" ]; then
     for commit in $COMMIT_HASHES; do
         # Get the commit subject and body separately
         SUBJECT=$(git log --format="%s" -n 1 "$commit")
-        BODY=$(git log --format="%b" -n 1 "$commit" | sed '/^$/d' | sed 's/^/  /')
+        RAW_BODY=$(git log --format="%b" -n 1 "$commit")
+
+        # Strip conventional prefix from subject since section headers indicate the type
+        STRIPPED_SUBJECT=$(echo "$SUBJECT" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//')
+        COMMIT_ENTRY="- $STRIPPED_SUBJECT"
         
-        # Create the full commit entry
-        COMMIT_ENTRY="- $(echo "$SUBJECT" | sed 's/^[a-z]*[^:]*: //')"
-        if [ -n "$BODY" ]; then
-            COMMIT_ENTRY="$COMMIT_ENTRY"$'\n'"$BODY"
+        # Format body as indented bullet list (    - ...), stripping any existing list markers
+        if [ -n "$RAW_BODY" ]; then
+            BODY_BULLETS=$(echo "$RAW_BODY" \
+              | sed 's/\r$//' \
+              | awk 'NF' \
+              | sed -E 's/^[[:space:]]*[-*][[:space:]]+//' \
+              | sed -E 's/^[[:space:]]+//' \
+              | sed 's/^/    - /')
+            if [ -n "$BODY_BULLETS" ]; then
+                COMMIT_ENTRY="$COMMIT_ENTRY"$'\n'"$BODY_BULLETS"
+            fi
+        fi
+        
+        # Check for breaking changes first (any commit with !)
+        if [[ "$SUBJECT" =~ ! ]]; then
+            if [ -n "$BREAKING_COMMITS" ]; then
+                BREAKING_COMMITS="$BREAKING_COMMITS"$'\n\n'
+            fi
+            
+            # For breaking changes, extract BREAKING CHANGE: content or use already-stripped subject
+            BREAKING_ENTRY=""
+            if [[ "$RAW_BODY" =~ BREAKING\ CHANGE:[[:space:]]*(.*) ]]; then
+                # Extract text after "BREAKING CHANGE:"
+                BREAKING_TEXT="${BASH_REMATCH[1]}"
+                BREAKING_ENTRY="- $BREAKING_TEXT"
+            else
+                # Fallback to stripped subject (prefix already removed above)
+                BREAKING_ENTRY="- $STRIPPED_SUBJECT"
+            fi
+            
+            BREAKING_COMMITS="$BREAKING_COMMITS$BREAKING_ENTRY"
         fi
         
         # Categorize based on conventional commit type
@@ -138,10 +170,7 @@ if [ -n "$COMMIT_HASHES" ]; then
             if [ -n "$OTHER_COMMITS" ]; then
                 OTHER_COMMITS="$OTHER_COMMITS"$'\n\n'
             fi
-            OTHER_COMMITS="$OTHER_COMMITS- $SUBJECT"
-            if [ -n "$BODY" ]; then
-                OTHER_COMMITS="$OTHER_COMMITS"$'\n'"$BODY"
-            fi
+            OTHER_COMMITS="$OTHER_COMMITS$COMMIT_ENTRY"
         fi
     done
 fi
@@ -168,6 +197,14 @@ if [ -n "$PERF_COMMITS" ]; then
     echo "$PERF_COMMITS" >> "$TEMP_CHANGELOG"
 else
     echo "- No performance improvements" >> "$TEMP_CHANGELOG"
+fi
+echo "" >> "$TEMP_CHANGELOG"
+
+echo "### Breaking Changes" >> "$TEMP_CHANGELOG"
+if [ -n "$BREAKING_COMMITS" ]; then
+    echo "$BREAKING_COMMITS" >> "$TEMP_CHANGELOG"
+else
+    echo "- No breaking changes" >> "$TEMP_CHANGELOG"
 fi
 echo "" >> "$TEMP_CHANGELOG"
 
@@ -226,6 +263,9 @@ if [ -f "CHANGELOG.md" ]; then
     echo "### Performance" >> "$UPDATED_CHANGELOG"
     echo "- " >> "$UPDATED_CHANGELOG"
     echo "" >> "$UPDATED_CHANGELOG"
+    echo "### Breaking Changes" >> "$UPDATED_CHANGELOG"
+    echo "- " >> "$UPDATED_CHANGELOG"
+    echo "" >> "$UPDATED_CHANGELOG"
     echo "### Documentation" >> "$UPDATED_CHANGELOG"
     echo "- " >> "$UPDATED_CHANGELOG"
     echo "" >> "$UPDATED_CHANGELOG"
@@ -271,6 +311,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 - 
 
+### Breaking Changes
+- 
+
 ### Documentation
 - 
 
@@ -287,6 +330,17 @@ fi
 
 # Clean up temporary file
 rm "$TEMP_CHANGELOG"
+
+# Normalize CHANGELOG formatting (bullets/blank lines) recursively
+echo "Normalizing CHANGELOG formatting..."
+TMP_NORM=$(mktemp)
+awk 'NF{blank=0} !NF{if(blank) next; blank=1} {print}' CHANGELOG.md > "$TMP_NORM"
+mv "$TMP_NORM" CHANGELOG.md
+sed -i -E \
+  -e 's/^([[:space:]]*-)[[:space:]]+$/\1 /' \
+  -e 's/^  - /    - /' \
+  -e 's/^[[:space:]]+$/\n/' \
+  CHANGELOG.md
 
 # Show the generated changelog section
 echo ""

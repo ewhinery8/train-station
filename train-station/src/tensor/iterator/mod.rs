@@ -1,9 +1,13 @@
-//! Iterator module for tensor element-wise operations
+//! Iterator module for tensor iteration
 //!
 //! This module provides high-performance iterators over tensor elements, where each
 //! element is represented as a view tensor of shape `[1]`. This design allows for
 //! seamless integration with Rust's standard library iterator methods while
 //! leveraging the existing tensor operation framework and gradient tracking.
+//!
+//! Implicit performance routing: iterator constructors decide at creation time whether
+//! to use a no-grad fast path (borrowed contiguous traversal or one-time materialization)
+//! or a grad-preserving view path based on `requires_grad` and `gradtrack::is_grad_enabled()`.
 //!
 //! # Key Features
 //!
@@ -27,7 +31,7 @@
 //!
 //! # Examples
 //!
-//! ## Basic Element Iteration
+//! ## Basic Element Iteration (1D tensors)
 //!
 //! ```
 //! use train_station::Tensor;
@@ -35,6 +39,7 @@
 //! let tensor = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
 //!
 //! // Basic iteration over elements
+//! // For 1D tensors, `iter()` yields scalar views
 //! for element in tensor.iter() {
 //!     println!("Element value: {}", element.value());
 //! }
@@ -44,7 +49,7 @@
 //! assert_eq!(collected.data(), tensor.data());
 //! ```
 //!
-//! ## Element-Wise Transformations
+//! ## Element-Wise Transformations (1D convenience)
 //!
 //! ```
 //! use train_station::Tensor;
@@ -66,7 +71,7 @@
 //! assert_eq!(transformed.data(), &[3.0, 5.0, 7.0]);
 //! ```
 //!
-//! ## Advanced Iterator Operations
+//! ## Advanced Iterator Operations (1D convenience)
 //!
 //! ```
 //! use train_station::Tensor;
@@ -89,7 +94,7 @@
 //! assert_eq!(indexed.data(), &[1.0, 3.0, 5.0, 7.0, 9.0]);
 //! ```
 //!
-//! ## Range Iteration
+//! ## Range Iteration (1D convenience)
 //!
 //! ```
 //! use train_station::Tensor;
@@ -104,7 +109,7 @@
 //! assert_eq!(middle.data(), &[4.0, 6.0, 8.0]);
 //! ```
 //!
-//! ## Double-Ended Iteration
+//! ## Double-Ended Iteration (1D convenience)
 //!
 //! ```
 //! use train_station::Tensor;
@@ -139,7 +144,16 @@
 //! assert_eq!(result.data(), &[2.0, 4.0]);
 //! ```
 //!
-//! # Design Principles
+//! # Design Principles and API Overview
+//!
+//! - Use `iter()` or `outer_iter()` to iterate outermost-dimension sub-tensors (Vec-like semantics)
+//! - Use `iter_dim(dim)` to iterate sub-tensors along an arbitrary dimension
+//! - Use `iter_flat()` to iterate scalar views in row-major order
+//! - Use `chunks()` / `chunks_exact()` for linear chunk views
+//! - Use `windows()` / `windows_step()` for overlapping linear window views
+//!
+//! Deprecated aliases (will be removed pre-1.0): `iter_chunks`, `iter_chunks_exact`,
+//! `iter_windows`, `iter_windows_step`.
 //!
 //! - **Zero-Copy Views**: Element views share memory with source tensor
 //! - **Full Tensor Operations**: Each element supports all tensor methods
@@ -152,7 +166,6 @@
 pub mod chunks;
 pub mod collect;
 pub mod element;
-pub mod value;
 pub mod viewdim;
 pub mod windows;
 
@@ -264,6 +277,17 @@ impl<'a> IntoIterator for &'a Tensor {
     fn into_iter(self) -> Self::IntoIter {
         // Iterate outermost dim by default
         self.iter_dim(0)
+    }
+}
+
+/// IntoIterator for owned Tensor: iterate outermost dimension producing sub-tensors.
+/// Enables `.into_iter().flatten()` patterns on owned tensors.
+impl IntoIterator for Tensor {
+    type Item = Tensor;
+    type IntoIter = crate::tensor::iterator::viewdim::TensorDimOwnedIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        crate::tensor::iterator::viewdim::TensorDimOwnedIterator::new(self, 0)
     }
 }
 
@@ -776,7 +800,7 @@ mod tests {
     #[test]
     fn test_chunks_basic() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-        let chunks: Vec<Tensor> = t.iter_chunks(2).collect();
+        let chunks: Vec<Tensor> = t.chunks(2).collect();
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0].data(), &[1.0, 2.0]);
         assert_eq!(chunks[1].data(), &[3.0, 4.0]);
@@ -787,7 +811,7 @@ mod tests {
     #[test]
     fn test_chunks_exact_with_remainder() {
         let t = Tensor::from_slice(&[10.0, 20.0, 30.0, 40.0, 50.0], vec![5]).unwrap();
-        let mut it = t.iter_chunks_exact(2);
+        let mut it = t.chunks_exact(2);
         let v0 = it.next().unwrap();
         let v1 = it.next().unwrap();
         assert!(it.next().is_none());
@@ -801,7 +825,7 @@ mod tests {
     #[test]
     fn test_windows_basic() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
-        let wins: Vec<Tensor> = t.iter_windows(3).collect();
+        let wins: Vec<Tensor> = t.windows(3).collect();
         assert_eq!(wins.len(), 2);
         assert_eq!(wins[0].data(), &[1.0, 2.0, 3.0]);
         assert_eq!(wins[1].data(), &[2.0, 3.0, 4.0]);
@@ -811,7 +835,7 @@ mod tests {
     #[test]
     fn test_windows_step() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], vec![5]).unwrap();
-        let wins: Vec<Tensor> = t.iter_windows_step(2, 2).collect();
+        let wins: Vec<Tensor> = t.windows_step(2, 2).collect();
         assert_eq!(wins.len(), 2);
         assert_eq!(wins[0].data(), &[1.0, 2.0]);
         assert_eq!(wins[1].data(), &[3.0, 4.0]);
@@ -821,7 +845,7 @@ mod tests {
     #[test]
     fn test_collect_shape() {
         let t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![6]).unwrap();
-        let mat = t.iter_chunks(2).collect_shape(vec![3, 2]);
+        let mat = t.chunks(2).collect_shape(vec![3, 2]);
         assert_eq!(mat.shape().dims(), &[3, 2]);
         assert_eq!(mat.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     }
@@ -883,7 +907,7 @@ mod tests {
                 let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
                 let t = Tensor::from_slice(&data, vec![n]).unwrap();
                 let parts: Vec<Tensor> = t
-                    .iter_chunks(chunk_size)
+                    .chunks(chunk_size)
                     .map(|c| c.mul_scalar(2.0).add_scalar(1.0))
                     .collect();
                 let out = Tensor::cat(&parts, 0);
@@ -914,25 +938,6 @@ mod tests {
             }
             let avg_chunks_vec = total_chunks_vec / iterations as u32;
 
-            // -------- Auto-tuned fast chunks (Tensor) --------
-            let mut total_fast_chunks_tensor = std::time::Duration::ZERO;
-            for run in 0..(iterations + 1) {
-                let t0 = Instant::now();
-                let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
-                let t = Tensor::from_slice(&data, vec![n]).unwrap();
-                let parts: Vec<Tensor> = t
-                    .iter_fast_chunks()
-                    .map(|c| c.mul_scalar(2.0).add_scalar(1.0))
-                    .collect();
-                let out = Tensor::cat(&parts, 0);
-                let _ = out.get(&[out.size().saturating_sub(1)]);
-                let dt = t0.elapsed();
-                if run > 0 {
-                    total_fast_chunks_tensor += dt;
-                }
-            }
-            let avg_fast_chunks_tensor = total_fast_chunks_tensor / iterations as u32;
-
             // -------- Value iterator (Tensor) --------
             let mut total_values_tensor = std::time::Duration::ZERO;
             let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
@@ -940,7 +945,7 @@ mod tests {
 
             for run in 0..(iterations + 1) {
                 let t0 = Instant::now();
-                let _v_out: Tensor = t.iter_values().map(|x| 2.0 * x + 1.0).collect();
+                let _v_out: Tensor = t.iter().map(|e| 2.0 * e.value() + 1.0).collect();
                 let dt = t0.elapsed();
                 if run > 0 {
                     total_values_tensor += dt;
@@ -954,8 +959,11 @@ mod tests {
                 let t0 = Instant::now();
                 let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
                 let mut out = Tensor::from_slice(&data, vec![n]).unwrap();
-                for v in out.iter_values_mut() {
-                    *v = 2.0 * *v + 1.0;
+                {
+                    let d = out.data_mut();
+                    for v in d.iter_mut() {
+                        *v = 2.0 * *v + 1.0;
+                    }
                 }
                 let _ = out.get(&[out.size().saturating_sub(1)]);
                 let dt = t0.elapsed();
@@ -968,12 +976,11 @@ mod tests {
             // -------- Summary per size --------
             let s_elem = avg_elem_vec.as_secs_f64() / avg_elem_tensor.as_secs_f64();
             let s_chunks = avg_chunks_vec.as_secs_f64() / avg_chunks_tensor.as_secs_f64();
-            let s_fast_chunks = avg_chunks_vec.as_secs_f64() / avg_fast_chunks_tensor.as_secs_f64();
             let s_values = avg_elem_vec.as_secs_f64() / avg_values_tensor.as_secs_f64();
             let s_values_mut = avg_elem_vec.as_secs_f64() / avg_values_mut_tensor.as_secs_f64();
 
             println!(
-                "\n[Size: {:>9} elements]\n  - Tensor (element): {:>8.3} ms\n  - Vec   (element): {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (chunks):  {:>8.3} ms\n  - Vec   (chunks):  {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (fast_chunks): {:>8.3} ms\n    Speedup (fast_chunks vs Vec chunks): {:>6.2}x\n  - Tensor (values):  {:>8.3} ms\n    Speedup (values vs Vec element): {:>6.2}x\n  - Tensor (values_mut):  {:>8.3} ms\n    Speedup (values_mut vs Vec element): {:>6.2}x",
+                "\n[Size: {:>9} elements]\n  - Tensor (element): {:>8.3} ms\n  - Vec   (element): {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (chunks):  {:>8.3} ms\n  - Vec   (chunks):  {:>8.3} ms\n    Speedup (Tensor/Vec): {:>6.2}x\n  - Tensor (values):  {:>8.3} ms\n    Speedup (values vs Vec element): {:>6.2}x\n  - Tensor (values_mut):  {:>8.3} ms\n    Speedup (values_mut vs Vec element): {:>6.2}x",
                 n,
                 avg_elem_tensor.as_secs_f64() * 1e3,
                 avg_elem_vec.as_secs_f64() * 1e3,
@@ -981,8 +988,6 @@ mod tests {
                 avg_chunks_tensor.as_secs_f64() * 1e3,
                 avg_chunks_vec.as_secs_f64() * 1e3,
                 s_chunks,
-                avg_fast_chunks_tensor.as_secs_f64() * 1e3,
-                s_fast_chunks,
                 avg_values_tensor.as_secs_f64() * 1e3,
                 s_values,
                 avg_values_mut_tensor.as_secs_f64() * 1e3,
@@ -993,37 +998,25 @@ mod tests {
         println!("\nNote: timings include creation, iteration, ops (2x+1), and collection.");
     }
 
-    /// Test iter_values over contiguous tensors
+    /// Replacement for previous values-only iteration: derive values via scalar views
     #[test]
-    fn test_iter_values_contiguous() {
+    fn test_values_via_views() {
         let t =
             Tensor::from_slice(&(0..16).map(|i| i as f32).collect::<Vec<_>>(), vec![16]).unwrap();
-        let vals: Vec<f32> = t.iter_values().collect();
+        let vals: Vec<f32> = t.iter().map(|e| e.value()).collect();
         assert_eq!(vals, (0..16).map(|i| i as f32).collect::<Vec<_>>());
     }
 
-    /// Test iter_values_mut requires contiguous and mutates in place
+    /// Replacement for previous iter_values_mut: mutate via data_mut
     #[test]
-    fn test_iter_values_mut_contiguous() {
+    fn test_mutation_via_data_mut() {
         let mut t = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], vec![4]).unwrap();
-        for v in t.iter_values_mut() {
-            *v += 1.0;
+        {
+            let d = t.data_mut();
+            for v in d.iter_mut() {
+                *v += 1.0;
+            }
         }
         assert_eq!(t.data(), &[2.0, 3.0, 4.0, 5.0]);
-    }
-
-    /// Test iter_fast_chunks heuristic produces reasonable chunking
-    #[test]
-    fn test_iter_fast_chunks_basic() {
-        let t = Tensor::from_slice(
-            &(0..100_000).map(|i| i as f32).collect::<Vec<_>>(),
-            vec![100_000],
-        )
-        .unwrap();
-        let mut total = 0usize;
-        for c in t.iter_fast_chunks() {
-            total += c.size();
-        }
-        assert_eq!(total, 100_000);
     }
 }

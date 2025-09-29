@@ -186,6 +186,9 @@ pub enum SimdLevel {
 }
 
 /// Detect the highest available SIMD level at runtime.
+///
+/// On x86_64, checks for AVX512, AVX2, then SSE2 in descending order. Falls back
+/// to `Scalar` when features are unavailable or on non-x86 targets.
 #[inline]
 pub fn detect_runtime_simd() -> SimdLevel {
     #[cfg(target_arch = "x86_64")]
@@ -224,6 +227,9 @@ pub(crate) fn simd_lane_width_elems(level: SimdLevel) -> usize {
 }
 
 /// Alignment in bytes recommended for the given SIMD level
+///
+/// Returns a conservative alignment for each SIMD tier to enable aligned loads/stores.
+/// On Scalar, returns 16 for general safety.
 #[inline]
 pub fn simd_alignment_bytes(level: SimdLevel) -> usize {
     match level {
@@ -238,8 +244,18 @@ pub fn simd_alignment_bytes(level: SimdLevel) -> usize {
 }
 
 /// Compute allocation alignment (bytes) and padded element count for a requested length.
-/// When NoMemPadding is enabled, padding is disabled and exact element count is returned.
-/// Enhanced version with better alignment guarantees for matmul operations.
+///
+/// When NoMemPadding is enabled, padding is disabled and the exact element count is returned.
+/// Otherwise, the element count is rounded up to the nearest SIMD lane width to improve
+/// vectorization and store alignment.
+///
+/// # Arguments
+///
+/// * `requested_elems` - Desired number of elements
+///
+/// # Returns
+///
+/// `(alignment_bytes, padded_elems)`
 #[inline]
 pub fn compute_allocation_params(requested_elems: usize) -> (usize, usize) {
     let level = detect_runtime_simd();
@@ -265,6 +281,67 @@ pub fn compute_allocation_params(requested_elems: usize) -> (usize, usize) {
         let padded = requested_elems.div_ceil(lane) * lane;
         (align, padded)
     }
+}
+
+/// Minimum element count at which non-temporal (streaming) stores become profitable
+/// for large, linear copies on the current CPU. Returns `usize::MAX` for Scalar to
+/// effectively disable streaming stores when SIMD is unavailable.
+#[inline]
+#[cfg(target_arch = "x86_64")]
+pub fn stream_min_elems() -> usize {
+    match detect_runtime_simd() {
+        SimdLevel::Avx512 => 16_384, // 64 KiB+ worth of data
+        SimdLevel::Avx2 => 8_192,    // 32 KiB+
+        SimdLevel::Sse2 => 4_096,    // 16 KiB+
+        SimdLevel::Scalar => usize::MAX,
+    }
+}
+
+/// Prefetch lookahead distance in elements for long, streaming loops. Tuned per
+/// SIMD level to balance cache pollution and latency hiding. Returns 0 to skip
+/// prefetching when in Scalar mode.
+#[inline]
+#[cfg(target_arch = "x86_64")]
+pub fn prefetch_distance_elems() -> usize {
+    match detect_runtime_simd() {
+        SimdLevel::Avx512 => 512, // 2 KiB lookahead
+        SimdLevel::Avx2 => 256,   // 1 KiB lookahead
+        SimdLevel::Sse2 => 128,   // 512 B lookahead
+        SimdLevel::Scalar => 0,
+    }
+}
+
+/// Centralized heuristic for auto-tuned chunk sizes used by `iter_fast_chunks()`.
+///
+/// Targets approximately 64 KiB working-set per chunk, clamps to a conservative
+/// range, and rounds up to the current SIMD lane width for better alignment.
+///
+/// # Arguments
+///
+/// * `total_elems` - Total number of elements to process
+///
+/// # Returns
+///
+/// Chunk size in elements
+#[inline]
+pub fn choose_fast_chunk_size(total_elems: usize) -> usize {
+    if total_elems == 0 {
+        return 1;
+    }
+    // Start from a cache-aware baseline and scale lightly with problem size
+    let mut sz = 16_384usize; // 64 KiB of f32
+    if total_elems < 16_384 {
+        sz = 4_096;
+    } else if total_elems > 1_048_576 {
+        sz = 65_536;
+    }
+    // Align to SIMD lane width to reduce tail handling
+    let lane = simd_lane_width_elems(detect_runtime_simd());
+    if lane > 1 {
+        sz = sz.div_ceil(lane) * lane;
+    }
+    // Final clamp to practical bounds to avoid tiny or excessively large chunks
+    sz.clamp(4_096, 262_144)
 }
 
 /// Returns true if the current thread prefers using the memory pool for allocations.

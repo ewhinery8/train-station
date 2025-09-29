@@ -10,41 +10,6 @@
 //! - `core`: Core performance testing framework and utilities
 //! - `tensor/ops`: Individual tensor operation performance tests (one file per operation)
 //! - Future: `tensor/transform`, `tensor/indexing`, etc.
-//!
-//! ## Usage
-//!
-//! ```rust,ignore
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! use libtorch_validation::performance::{
-//!     PerformanceTester, PerformanceConfig,
-//!     tensor::ops::{AddPerformanceTester, SubPerformanceTester}
-//! };
-//!
-//! // Test individual operations
-//! let mut add_tester = AddPerformanceTester::new();
-//! let results = add_tester.test_all_operations();
-//! add_tester.tester().save_results("add_performance.json")?;
-//!
-//! // Test all operations
-//! let config = PerformanceConfig {
-//!     iterations: 1000,
-//!     verbose: true,
-//!     ..Default::default()
-//! };
-//!
-//! let mut tester = PerformanceTester::with_config(config);
-//! tester.benchmark_operation(
-//!     "add_tensor",
-//!     &[512, 512],
-//!     || our_add_implementation(),
-//!     || libtorch_add_implementation(),
-//! );
-//!
-//! tester.save_results("performance_results.json")?;
-//! tester.print_summary();
-//! # Ok(())
-//! # }
-//! ```
 
 pub mod core;
 pub mod tensor;

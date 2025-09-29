@@ -1,4 +1,4 @@
-use crate::gradtrack::{GradEngine, GradFn};
+use crate::gradtrack::{is_grad_enabled, GradEngine, GradFn};
 use crate::tensor::core::Tensor;
 
 impl Tensor {
@@ -21,6 +21,12 @@ impl Tensor {
     ///
     /// A tensor with the selected slice. The result has the same shape as the input
     /// except with the specified dimension removed.
+    ///
+    /// # Performance
+    ///
+    /// Returns a view when possible (base offset is zero) to avoid copying. On
+    /// non-zero offsets, falls back to a contiguous copy for correctness. Gradients
+    /// propagate back to the selected slice when GradTrack is enabled.
     ///
     /// # Examples
     ///
@@ -177,8 +183,8 @@ impl Tensor {
             Err(e) => panic!("select view error: {:?}", e),
         };
 
-        // GradTrack registration: backward scatters grad_output into zeros at the selected slice
-        if self.requires_grad() {
+        // GradTrack registration only when gradients are enabled and input requires grad
+        if self.requires_grad() && is_grad_enabled() {
             result.set_requires_grad(true);
             let grad_fn = GradFn::Select {
                 dim,

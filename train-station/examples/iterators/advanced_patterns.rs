@@ -28,6 +28,15 @@
 //! - **Batch Operations**: Efficient processing of large datasets
 //! - **Error Handling**: Robust processing with fallback strategies
 //! - **Performance Optimization**: Memory-efficient processing patterns
+//! - **GradTrack Integration**: Build complex graphs with iterator-based views
+//!
+//! When to choose an approach:
+//! - Prefer per-slice iteration via `iter()` when your logic is row/outer-dimension-oriented.
+//!   Use `collect_shape([..])` to preserve shape while composing transforms.
+//! - For element-wise scalar transforms across entire tensors, use `iter_flat()` with
+//!   `collect_shape` and rely on GradTrack to wire reshapes correctly.
+//! - For big pipelines, chunk flattened tensors with `chunks()` to improve cache behavior.
+//! - For read-only inference, `with_no_grad` and value streaming provide the fastest route.
 //!
 //! ## Example Code Structure
 //!
@@ -49,7 +58,11 @@
 //! - Batch operations leverage SIMD optimizations
 //! - Lazy evaluation patterns improve memory efficiency
 
-use train_station::Tensor;
+use train_station::{
+    gradtrack::with_no_grad,
+    tensor::{TensorCollectExt, ValuesCollectExt},
+    Tensor,
+};
 
 /// Main example function demonstrating advanced iterator patterns
 ///
@@ -249,7 +262,7 @@ fn demonstrate_batch_operations() -> Result<(), Box<dyn std::error::Error>> {
     let tensor = Tensor::from_slice(&data, vec![size])?;
     println!("Dataset size: {}", tensor.size());
 
-    // Batch processing with windowing
+    // Batch processing with windowing (iterator views)
     println!("\nBatch processing with sliding windows:");
     let batch_size = 10;
     let batches: Vec<Tensor> = tensor
@@ -339,7 +352,7 @@ fn demonstrate_real_world_scenarios() -> Result<(), Box<dyn std::error::Error>> 
     let series = Tensor::from_slice(&time_series, vec![24])?;
     println!("  Time series (24 hours): {:?}", series.data());
 
-    // Calculate moving average
+    // Calculate moving average with view-based iteration
     let window_size = 3;
     let moving_avg: Tensor = series
         .iter()
@@ -357,6 +370,33 @@ fn demonstrate_real_world_scenarios() -> Result<(), Box<dyn std::error::Error>> 
         window_size,
         moving_avg.data()
     );
+
+    // Inference pipeline with NoGrad + streaming
+    println!("\nInference pipeline (NoGrad + streaming)");
+    let features = Tensor::from_slice(
+        &(0..48).map(|i| i as f32 * 0.125).collect::<Vec<_>>(),
+        vec![6, 8],
+    )?;
+    let fast = with_no_grad(|| {
+        // Stream values directly, apply light affine, and collect back to same shape
+        features
+            .data()
+            .iter()
+            .copied()
+            .map(|x| 0.75 * x + 0.1)
+            .collect_shape(vec![6, 8])
+    });
+    println!(
+        "  NoGrad streamed transform shape: {:?}",
+        fast.shape().dims()
+    );
+
+    // Row-wise iteration with shape-preserving collection (GradTrack-friendly)
+    let per_row: Tensor = features
+        .iter()
+        .map(|row| row.mul_scalar(0.5).add_scalar(2.0))
+        .collect_shape(vec![6, 8]);
+    println!("  Row-wise mapped shape: {:?}", per_row.shape().dims());
 
     // Scenario 2: Feature engineering
     println!("\nScenario 2: Feature Engineering");

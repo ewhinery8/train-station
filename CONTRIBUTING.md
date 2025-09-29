@@ -51,6 +51,53 @@ perf: speed up add by avoiding extra allocs
 docs: document iterator API with examples
 ```
 
+### Expected format (for CHANGELOG rendering)
+
+Our release scripts automatically generate changelog entries from commit messages. The format is:
+
+**Subject line:** Conventional prefixes are stripped since section headers indicate the type
+- `feat: add new feature` → `- add new feature` (in Added section)
+- `feat!: breaking change` → `- breaking change` (in Added section)
+- `fix(scope): fix bug` → `- fix bug` (in Fixed section)
+- `perf: improve performance` → `- improve performance` (in Performance section)
+
+**Breaking Changes section:** Shows content after `BREAKING CHANGE:` or stripped subject
+- `feat!: breaking change` with `BREAKING CHANGE: API changed` → `- API changed`
+- `feat!: breaking change` without `BREAKING CHANGE:` block → `- breaking change`
+
+**Body (optional):** Bullet list of details, each line prefixed with four spaces and a dash
+```text
+feat: improved Tensor Iterator system semantics and collection performance
+
+    - removed iter_values() in favor of tensor.data().iter()
+    - updated semantics for iterators to better reflect std Rust
+    - updated code docs to better reflect functionality
+    - added training examples and basic network example
+```
+
+**Breaking changes:** Include `!` after type and `BREAKING CHANGE:` in body for automatic categorization
+```text
+feat!: iterator API updates
+
+    - renamed iter_values() to data().iter()
+    - updated public API signatures
+
+BREAKING CHANGE: Iterator signatures changed; see examples and docs
+```
+
+The Breaking Changes section will show:
+- `- Iterator signatures changed; see examples and docs` (text after `BREAKING CHANGE:`)
+- If no `BREAKING CHANGE:` block exists, falls back to: `- iterator API updates` (subject without prefix)
+
+**Changelog sections generated:**
+- `feat` commits → **Added** section
+- `fix` commits → **Fixed** section  
+- `perf` commits → **Performance** section
+- `docs` commits → **Documentation** section
+- `chore` commits → **Maintenance** section
+- Any commit with `!` → **Breaking Changes** section (in addition to type section)
+- Other types → **Other Changes** section
+
 ## Issue reports and feature requests
 - Describe the problem, steps to reproduce, and expected behavior.
 - Include OS, Rust version, and feature flags if relevant.

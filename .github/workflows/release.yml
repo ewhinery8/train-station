@@ -83,25 +83,54 @@ jobs:
           
           EOF
             
-            # Parse conventional commits and categorize
+            # Parse conventional commits and categorize (strip prefixes since headers indicate type)
             echo "### Added" >> "$OUTPUT_FILE"
-            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^feat" | sed 's/^feat[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No new features" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^feat" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//' | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No new features" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
             
             echo "### Fixed" >> "$OUTPUT_FILE"
-            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^fix" | sed 's/^fix[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No bug fixes" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^fix" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//' | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No bug fixes" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
             
             echo "### Performance" >> "$OUTPUT_FILE"
-            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^perf" | sed 's/^perf[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No performance improvements" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^perf" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//' | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No performance improvements" >> "$OUTPUT_FILE"
             echo "" >> "$OUTPUT_FILE"
             
             echo "### Documentation" >> "$OUTPUT_FILE"
-            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^docs" | sed 's/^docs[^:]*: /- /' >> "$OUTPUT_FILE" || echo "- No documentation changes" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep "^docs" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//' | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No documentation changes" >> "$OUTPUT_FILE"
+            echo "" >> "$OUTPUT_FILE"
+            
+            echo "### Breaking Changes" >> "$OUTPUT_FILE"
+            # Extract BREAKING CHANGE: content from commit bodies, or use stripped subjects
+            BREAKING_FOUND=false
+            while IFS= read -r commit_hash; do
+              if [ -n "$commit_hash" ]; then
+                SUBJECT=$(git log --format="%s" -n 1 "$commit_hash" 2>/dev/null)
+                BODY=$(git log --format="%b" -n 1 "$commit_hash" 2>/dev/null)
+                
+                if [[ "$SUBJECT" =~ ! ]]; then
+                  # Always strip conventional prefix from subject for breaking changes
+                  STRIPPED=$(echo "$SUBJECT" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//')
+                  
+                  if [[ "$BODY" =~ BREAKING\ CHANGE:[[:space:]]*(.*) ]]; then
+                    # Extract text after "BREAKING CHANGE:"
+                    echo "- ${BASH_REMATCH[1]}" >> "$OUTPUT_FILE"
+                  else
+                    # Fallback to stripped subject (conventional prefix already removed)
+                    echo "- $STRIPPED" >> "$OUTPUT_FILE"
+                  fi
+                  BREAKING_FOUND=true
+                fi
+              fi
+            done <<< "$(git rev-list $COMMIT_RANGE 2>/dev/null || true)"
+            
+            if [ "$BREAKING_FOUND" = false ]; then
+              echo "- No breaking changes" >> "$OUTPUT_FILE"
+            fi
             echo "" >> "$OUTPUT_FILE"
             
             echo "### Other Changes" >> "$OUTPUT_FILE"
-            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep -v "^feat\|^fix\|^perf\|^docs\|^chore.*release" | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No other changes" >> "$OUTPUT_FILE"
+            git log --pretty=format:"%s" $COMMIT_RANGE 2>/dev/null | grep -v "^feat\|^fix\|^perf\|^docs\|^chore.*release" | sed -E 's/^[a-z]+(!)?(\([^)]*\))?:[[:space:]]*//' | sed 's/^/- /' >> "$OUTPUT_FILE" || echo "- No other changes" >> "$OUTPUT_FILE"
             
             # Clean up empty sections
             sed -i '/^### [A-Za-z]*$/N;/\n- No /d' "$OUTPUT_FILE" || true

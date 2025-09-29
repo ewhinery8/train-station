@@ -40,6 +40,12 @@ use train_station::{
     Tensor,
 };
 
+// Reuse LinearLayer from the shared example to avoid duplication
+#[allow(clippy::duplicate_mod)]
+#[path = "basic_linear_layer.rs"]
+mod basic_linear_layer;
+use basic_linear_layer::LinearLayer;
+
 /// ReLU activation function
 pub struct ReLU;
 
@@ -50,50 +56,10 @@ impl ReLU {
     }
 
     /// Apply ReLU activation without gradients
+    #[allow(unused)]
     pub fn forward_no_grad(input: &Tensor) -> Tensor {
         let _guard = NoGradTrack::new();
         Self::forward(input)
-    }
-}
-
-/// A basic linear layer implementation (reused from basic_linear_layer.rs)
-#[derive(Debug)]
-pub struct LinearLayer {
-    pub weight: Tensor,
-    pub bias: Tensor,
-    pub input_size: usize,
-    pub output_size: usize,
-}
-
-impl LinearLayer {
-    pub fn new(input_size: usize, output_size: usize, seed: Option<u64>) -> Self {
-        let scale = (1.0 / input_size as f32).sqrt();
-
-        let weight = Tensor::randn(vec![input_size, output_size], seed)
-            .mul_scalar(scale)
-            .with_requires_grad();
-        let bias = Tensor::zeros(vec![output_size]).with_requires_grad();
-
-        Self {
-            weight,
-            bias,
-            input_size,
-            output_size,
-        }
-    }
-
-    pub fn forward(&self, input: &Tensor) -> Tensor {
-        let output = input.matmul(&self.weight);
-        output.add_tensor(&self.bias)
-    }
-
-    pub fn forward_no_grad(&self, input: &Tensor) -> Tensor {
-        let _guard = NoGradTrack::new();
-        self.forward(input)
-    }
-
-    pub fn parameters(&mut self) -> Vec<&mut Tensor> {
-        vec![&mut self.weight, &mut self.bias]
     }
 }
 
@@ -103,6 +69,7 @@ pub struct FeedForwardConfig {
     pub input_size: usize,
     pub hidden_sizes: Vec<usize>,
     pub output_size: usize,
+    #[allow(unused)]
     pub use_bias: bool,
 }
 
@@ -166,6 +133,7 @@ impl FeedForwardNetwork {
     }
 
     /// Forward pass without gradients (for inference)
+    #[allow(unused)]
     pub fn forward_no_grad(&self, input: &Tensor) -> Tensor {
         let _guard = NoGradTrack::new();
         self.forward(input)
@@ -181,11 +149,13 @@ impl FeedForwardNetwork {
     }
 
     /// Get the number of layers
+    #[allow(unused)]
     pub fn num_layers(&self) -> usize {
         self.layers.len()
     }
 
     /// Get the total number of parameters
+    #[allow(unused)]
     pub fn parameter_count(&self) -> usize {
         let mut count = 0;
         let mut current_size = self.config.input_size;
@@ -202,6 +172,7 @@ impl FeedForwardNetwork {
     }
 
     /// Save network parameters to JSON
+    #[allow(unused)]
     pub fn save_json(&self, path: &str) -> Result<(), Box<dyn std::error::Error>> {
         if let Some(parent) = std::path::Path::new(path).parent() {
             fs::create_dir_all(parent)?;
@@ -225,6 +196,7 @@ impl FeedForwardNetwork {
     }
 
     /// Load network parameters from JSON
+    #[allow(unused)]
     pub fn load_json(
         path: &str,
         config: FeedForwardConfig,
@@ -272,6 +244,7 @@ impl FeedForwardNetwork {
     }
 }
 
+#[allow(unused)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Feed-Forward Network Example ===\n");
 
